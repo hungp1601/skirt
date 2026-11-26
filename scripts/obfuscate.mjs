@@ -1,0 +1,67 @@
+import * as esbuild from 'esbuild';
+import JavaScriptObfuscator from 'javascript-obfuscator';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const root = path.resolve(import.meta.dirname, '..');
+const dist = path.join(root, 'dist');
+const tmpBundle = path.join(root, '.obf-bundle.js');
+
+fs.rmSync(dist, { recursive: true, force: true });
+fs.mkdirSync(dist, { recursive: true });
+
+await esbuild.build({
+  absWorkingDir: root,
+  entryPoints: ['src/main.js'],
+  bundle: true,
+  format: 'esm',
+  outfile: tmpBundle,
+  external: ['three', 'three/*'],
+  minify: true,
+  legalComments: 'none',
+  target: 'es2022'
+});
+
+const source = fs.readFileSync(tmpBundle, 'utf8');
+const result = JavaScriptObfuscator.obfuscate(source, {
+  compact: true,
+  controlFlowFlattening: false,
+  deadCodeInjection: false,
+  debugProtection: false,
+  disableConsoleOutput: false,
+  identifierNamesGenerator: 'hexadecimal',
+  ignoreImports: true,
+  numbersToExpressions: false,
+  renameGlobals: false,
+  renameProperties: false,
+  selfDefending: false,
+  simplify: true,
+  splitStrings: true,
+  splitStringsChunkLength: 6,
+  stringArray: true,
+  stringArrayEncoding: ['base64'],
+  stringArrayThreshold: 1,
+  transformObjectKeys: false,
+  unicodeEscapeSequence: false
+});
+
+fs.writeFileSync(path.join(dist, 'game.js'), result.getObfuscatedCode());
+fs.rmSync(tmpBundle, { force: true });
+
+const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
+  .replace('./src/main.js', './game.js');
+fs.writeFileSync(path.join(dist, 'index.html'), html);
+fs.copyFileSync(path.join(root, 'styles.css'), path.join(dist, 'styles.css'));
+
+const assetsLink = path.join(dist, 'assets');
+fs.symlinkSync(path.join(root, 'assets'), assetsLink);
+
+const out = fs.readFileSync(path.join(dist, 'game.js'), 'utf8');
+const leaked = ['tearPatch', 'consumePullTear', 'DiamondFishnetStocking', 'character.glb'].filter((name) => out.includes(name));
+const kb = (out.length / 1024).toFixed(0);
+console.log(`dist/game.js ${kb} KB`);
+if (leaked.length) {
+  console.warn('Còn chuỗi đọc được:', leaked.join(', '));
+} else {
+  console.log('Không còn tên hàm hay đường dẫn model ở dạng chữ thường.');
+}
