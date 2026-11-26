@@ -912,11 +912,17 @@ export function createStockingSystem({ scene, camera, fiberDust, laceMat }) {
         const sLen = Math.hypot(sx, sy, sz) || 1;
         sx /= sLen; sy /= sLen; sz /= sLen;
 
+        // Dây là dây thẳng nối hai nút, nên giữa dây lõm vào trong da khi nhìn thẳng.
+        // Đẩy mặt sợi về phía camera để da không đè lên lưới ở góc chính diện.
+        const lift = 0.0024;
+        const lax = ax + vx * lift, lay = ay + vy * lift, laz = az + vz * lift;
+        const lbx = bx + vx * lift, lby = by + vy * lift, lbz = bz + vz * lift;
+
         const vBase = qIdx * 12;
-        sPos[vBase]     = ax - sx * hwA; sPos[vBase + 1]  = ay - sy * hwA; sPos[vBase + 2]  = az - sz * hwA;
-        sPos[vBase + 3] = ax + sx * hwA; sPos[vBase + 4]  = ay + sy * hwA; sPos[vBase + 5]  = az + sz * hwA;
-        sPos[vBase + 6] = bx - sx * hwB; sPos[vBase + 7]  = by - sy * hwB; sPos[vBase + 8]  = bz - sz * hwB;
-        sPos[vBase + 9] = bx + sx * hwB; sPos[vBase + 10] = by + sy * hwB; sPos[vBase + 11] = bz + sz * hwB;
+        sPos[vBase]     = lax - sx * hwA; sPos[vBase + 1]  = lay - sy * hwA; sPos[vBase + 2]  = laz - sz * hwA;
+        sPos[vBase + 3] = lax + sx * hwA; sPos[vBase + 4]  = lay + sy * hwA; sPos[vBase + 5]  = laz + sz * hwA;
+        sPos[vBase + 6] = lbx - sx * hwB; sPos[vBase + 7]  = lby - sy * hwB; sPos[vBase + 8]  = lbz - sz * hwB;
+        sPos[vBase + 9] = lbx + sx * hwB; sPos[vBase + 10] = lby + sy * hwB; sPos[vBase + 11] = lbz + sz * hwB;
 
         const nLx = -sx * 0.62 + vx * 0.78, nLy = -sy * 0.62 + vy * 0.78, nLz = -sz * 0.62 + vz * 0.78;
         const nRx =  sx * 0.62 + vx * 0.78, nRy =  sy * 0.62 + vy * 0.78, nRz =  sz * 0.62 + vz * 0.78;
@@ -1008,7 +1014,10 @@ export function createStockingSystem({ scene, camera, fiberDust, laceMat }) {
           continue;
         }
         const n3 = n * 3;
-        const x = pos[n3], y = pos[n3 + 1], z = pos[n3 + 2];
+        let x = pos[n3], y = pos[n3 + 1], z = pos[n3 + 2];
+        const kdx = camX - x, kdy = camY - y, kdz = camZ - z;
+        const kLen = Math.hypot(kdx, kdy, kdz) || 1;
+        x += (kdx / kLen) * 0.0024; y += (kdy / kLen) * 0.0024; z += (kdz / kLen) * 0.0024;
         const r = this.knotRadius * (deg >= 3 ? 1.0 : 0.82);
         const rx = camRight.x * r, ry = camRight.y * r, rz = camRight.z * r;
         const ux = camUp.x * r, uy = camUp.y * r, uz = camUp.z * r;

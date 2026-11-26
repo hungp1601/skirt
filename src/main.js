@@ -61,13 +61,36 @@ controls.minAzimuthAngle = -Infinity;
 controls.maxAzimuthAngle = Infinity;
 controls.enableRotate = true;
 controls.enablePan = true;
-controls.enableZoom = true;
-controls.zoomSpeed = 0.32;
+controls.enableZoom = false;
 controls.mouseButtons = {
   LEFT: THREE.MOUSE.ROTATE,
   MIDDLE: THREE.MOUSE.PAN,
   RIGHT: THREE.MOUSE.ROTATE
 };
+
+// Lăn chuột chỉ đẩy mục tiêu khoảng cách; camera trượt tới đó qua nhiều khung hình.
+const zoomOffset = new THREE.Vector3();
+let zoomTarget = camera.position.distanceTo(controls.target);
+renderer.domElement.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const pixels = e.deltaMode === 1 ? e.deltaY * 18 : e.deltaMode === 2 ? e.deltaY * 420 : e.deltaY;
+  const capped = Math.sign(pixels) * Math.min(Math.abs(pixels), 48);
+  zoomTarget = clamp(zoomTarget * (1 + capped * 0.00155), controls.minDistance, controls.maxDistance);
+}, { passive: false });
+
+function applySmoothZoom() {
+  const distNow = camera.position.distanceTo(controls.target);
+  if (camAnim) {
+    zoomTarget = distNow;
+    return;
+  }
+  const next = distNow + (zoomTarget - distNow) * 0.09;
+  if (Math.abs(next - distNow) < 0.0004) return;
+  zoomOffset.copy(camera.position).sub(controls.target);
+  const len = zoomOffset.length() || 1;
+  zoomOffset.multiplyScalar(next / len);
+  camera.position.copy(controls.target).add(zoomOffset);
+}
 
 // Portrait-Calibrated Studio Lighting
 scene.add(new THREE.HemisphereLight(0xf6efe9, 0x3b2d2a, 0.72));
@@ -625,6 +648,7 @@ function animate(now = performance.now()) {
     const ease = 1 - Math.pow(1 - camAnim.t, 3);
     camera.position.lerpVectors(camAnim.startPos, camAnim.endPos, ease);
     controls.target.lerpVectors(camAnim.startTarget, camAnim.endTarget, ease);
+    zoomTarget = camera.position.distanceTo(controls.target);
     if (camAnim.t >= 1) camAnim = null;
   }
 
@@ -636,6 +660,7 @@ function animate(now = performance.now()) {
   }
 
   controls.update();
+  applySmoothZoom();
 
   const activeGrabs = [];
   if (mainGrab) activeGrabs.push(mainGrab);

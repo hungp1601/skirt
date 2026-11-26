@@ -933,8 +933,8 @@ function buildSeamlessLowerLegsAndProfile(scene, model, torsoVerts, yCut, modelH
     sheenColor: new THREE.Color(0xfff2ec),
     envMapIntensity: 0.64,
     polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -2
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 2
   });
   legSkinMat.userData.seamBlendMat = seamBlendMat;
 
@@ -974,8 +974,9 @@ function buildSeamlessLowerLegsAndProfile(scene, model, torsoVerts, yCut, modelH
         const theta = u * Math.PI * 2;
         let rad = evalLowerRadius(sideKey, y, theta) * tuck;
         if (y < 0.10) rad *= 0.72 + 0.28 * smoothstep(0.016, 0.10, y);
-        const cover = y < ySeam + 0.055 ? smoothstep(ySeam + 0.055, ySeam - 0.015, y) : 0;
-        rad += 0.0008 + cover * 0.0028;
+        // Nổi 0.6mm để kín khe ghép, nhưng luôn nằm trong offset tất lưới (~1.7mm)
+        // kẻo mặt trước đùi đè texture da lên sợi lưới.
+        rad += 0.0006;
         verts.push(cx + Math.cos(theta) * rad, y, cz + Math.sin(theta) * rad);
         const rc = sampleRingColor(sideKey, theta);
         colors.push(
@@ -1045,9 +1046,8 @@ function buildSeamlessLowerLegsAndProfile(scene, model, torsoVerts, yCut, modelH
         const a0 = Math.floor((ang / (Math.PI * 2)) * NA) % NA;
         const rAna = evalLowerRadius(sideKey, y, theta);
         const rGlb = y >= ySeam - 0.004 ? glbBandMax[r * NA + a0] : 0;
-        // Nổi mỏng +1.1mm ở vùng ySeam và thu sát +0.3mm ở 2 mép mờ để bóng & bề mặt hoàn toàn vô hình
-        const midWeight = Math.sin(f * Math.PI);
-        const rad = Math.max(rAna, rGlb) + 0.0011 + midWeight * 0.0018;
+        // Dải hòa trộn nằm dưới sợi lưới (offset tất ~1.7mm) để không phủ da lên mắt lưới khi nhìn chính diện
+        const rad = Math.max(rAna, rGlb) + 0.0004;
         bVerts.push(cx + Math.cos(theta) * rad, y, cz + Math.sin(theta) * rad);
         const rc = sampleRingColor(sideKey, theta);
         bCols.push(rc[0], rc[1], rc[2]);
