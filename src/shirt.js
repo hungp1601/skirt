@@ -160,10 +160,18 @@ export class TearableSchoolShirt {
   }
 
   // Tính khoảng đệm tailored theo chiều cao vDown (ôm vòng 1 thoáng không xuyên bra, thon gọn vào cạp váy ở eo)
-  getBlouseEase(vDown) {
+  getBlouseEase(vDown, theta) {
     const bustZone = smoothstep(0.06, 0.24, vDown) * (1 - smoothstep(0.60, 0.84, vDown));
     const waistTuck = smoothstep(0.76, 1.0, vDown);
-    return 0.0085 + bustZone * 0.0065 - waistTuck * 0.0038;
+    let ease = 0.0085 + bustZone * 0.0065 - waistTuck * 0.0038;
+    if (theta !== undefined) ease -= this.backWeight(theta) * smoothstep(0.5, 1, vDown) * 0.0025;
+    return ease;
+  }
+
+  // 1 ở giữa sống lưng, 0 ở ngực và hai bên hông
+  backWeight(theta) {
+    const back = Math.max(0, -Math.cos(theta - this.frontTheta));
+    return smoothstep(0.18, 0.88, back);
   }
 
   // Tính độ khoét cổ áo mượt mà theo u (u=0.25 là cổ chữ V sắc nét trước ngực, u=0.75 là sau gáy, hai vai cao phủ kín dây áo)
@@ -207,8 +215,11 @@ export class TearableSchoolShirt {
 
         const { cx, cz, r: bodyR } = this.sampleTorsoRadius(vBody, theta);
         // Cổ áo nổi tách lớp 5.5mm..11mm bên ngoài thân áo để có độ dày & bóng đổ 3D thật
-        const blouseR = bodyR + this.getBlouseEase(vBody);
-        const lift = 0.0045 + Math.pow(f, 0.85) * 0.0075 + backFlap * f * 0.005;
+        const blouseR = bodyR + this.getBlouseEase(vBody, theta);
+        // Phía trước giữ lớp nổi. Tà sau hạ xuống để áp lưng, không đẩy thêm ra ngoài.
+        const frontLift = 0.0045 + Math.pow(f, 0.85) * 0.0075;
+        const backLift = 0.0024 + f * 0.0011;
+        const lift = frontLift * (1 - backFlap) + backLift * backFlap;
         const rad = blouseR + lift;
 
         verts.push(cx + Math.cos(theta) * rad, y, cz + Math.sin(theta) * rad);
@@ -390,14 +401,20 @@ export class TearableSchoolShirt {
 
       const r0 = radArr[s0 * NA + a0] * (1 - at) + radArr[s0 * NA + a1] * at;
       const r1 = radArr[s1 * NA + a0] * (1 - at) + radArr[s1 * NA + a1] * at;
-      return { cx, cz, r: Math.max(0.06, r0 * (1 - st) + r1 * st) };
+      return { cx, cz, r: this.fitBackRadius(vDown, theta, r0 * (1 - st) + r1 * st) };
     }
     const bust = Math.exp(-Math.pow((vDown - 0.35) / 0.24, 2));
     const rx = 0.145 + bust * 0.032;
     const rz = 0.105 + bust * 0.055 * Math.max(0, Math.sin(theta));
     const cosT = Math.cos(theta), sinT = Math.sin(theta);
     const r = Math.hypot(cosT * rx, sinT * rz);
-    return { cx: 0, cz: 0, r };
+    return { cx: 0, cz: 0, r: this.fitBackRadius(vDown, theta, r) };
+  }
+
+  // Bao thân lấy bán kính lớn nhất nên eo sau bị phồng. Chỉ kéo nửa dưới lưng, vai giữ ngoài da.
+  fitBackRadius(vDown, theta, r) {
+    const tuck = smoothstep(0.55, 1, vDown) * 0.014;
+    return r - this.backWeight(theta) * tuck;
   }
 
   initParticlesAndSprings() {
@@ -418,7 +435,7 @@ export class TearableSchoolShirt {
         const vBody = clamp((this.yTop - y) / spanY, 0, 1);
 
         const { cx, cz, r: bodyR } = this.sampleTorsoRadius(vBody, theta);
-        const ease = this.getBlouseEase(vBody);
+        const ease = this.getBlouseEase(vBody, theta);
         const drape = Math.sin(theta * 10) * 0.0014 * vDown;
         let rad = bodyR + ease + drape;
         if (armLimitFn && vBody > 0.35) {
