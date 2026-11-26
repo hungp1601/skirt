@@ -23,6 +23,8 @@ await esbuild.build({
 });
 
 const source = fs.readFileSync(tmpBundle, 'utf8');
+// Không mã hóa chuỗi và không bẻ luồng điều khiển: mỗi lần đọc chuỗi sẽ giải mã lại,
+// vòng mô phỏng vải mỗi khung hình sẽ giật. Chỉ đổi tên định danh.
 const result = JavaScriptObfuscator.obfuscate(source, {
   compact: true,
   controlFlowFlattening: false,
@@ -36,11 +38,8 @@ const result = JavaScriptObfuscator.obfuscate(source, {
   renameProperties: false,
   selfDefending: false,
   simplify: true,
-  splitStrings: true,
-  splitStringsChunkLength: 6,
-  stringArray: true,
-  stringArrayEncoding: ['base64'],
-  stringArrayThreshold: 1,
+  splitStrings: false,
+  stringArray: false,
   transformObjectKeys: false,
   unicodeEscapeSequence: false
 });
