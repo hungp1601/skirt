@@ -413,134 +413,228 @@ export function createSkirtTexture() {
   const w = 512, h = 512;
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#18202e';
+
+  // Deep tailored Japanese seifuku navy wool-twill base
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0.0, '#141c2b');
+  bg.addColorStop(0.14, '#182234');
+  bg.addColorStop(0.85, '#192336');
+  bg.addColorStop(1.0, '#131b29');
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
+
+  // Subtle diagonal twill weave grain
+  for (let y = 0; y < h; y += 2) {
+    ctx.fillStyle = y % 4 === 0 ? 'rgba(255,255,255,0.018)' : 'rgba(0,0,0,0.04)';
+    ctx.fillRect(0, y, w, 1);
+  }
   for (let x = 0; x < w; x += 2) {
-    ctx.fillStyle = x % 4 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.05)';
+    ctx.fillStyle = x % 4 === 0 ? 'rgba(255,255,255,0.022)' : 'rgba(0,0,0,0.045)';
     ctx.fillRect(x, 0, 1, h);
   }
-  ctx.fillStyle = '#e8eef5';
+
+  // Subtle vertical pleat crease depth (6 pleats per UV tile x 4 tiles = 24 pleats!)
+  const pleatsPerTile = 6;
+  const pw = w / pleatsPerTile;
+  for (let p = 0; p < pleatsPerTile; p++) {
+    const x0 = p * pw;
+    const g = ctx.createLinearGradient(x0, 0, x0 + pw, 0);
+    g.addColorStop(0.00, 'rgba(6, 10, 18, 0.34)');
+    g.addColorStop(0.18, 'rgba(255, 255, 255, 0.05)');
+    g.addColorStop(0.55, 'rgba(255, 255, 255, 0.02)');
+    g.addColorStop(0.88, 'rgba(6, 10, 18, 0.22)');
+    g.addColorStop(1.00, 'rgba(6, 10, 18, 0.34)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, h * 0.12, pw, h * 0.88);
+  }
+
+  // Structured fitted waistband at top (0..11%) with clean topstitch line
+  ctx.fillStyle = '#111826';
+  ctx.fillRect(0, 0, w, h * 0.115);
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(0, h * 0.108, w, 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0, h * 0.115, w, 3);
+
+  // Crisp twin ivory sailor hem stripes
+  ctx.fillStyle = '#eef2f8';
   ctx.fillRect(0, h - 54, w, 10);
-  ctx.fillRect(0, h - 29, w, 10);
+  ctx.fillRect(0, h - 30, w, 8);
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.fillRect(0, h - 44, w, 2);
+  ctx.fillRect(0, h - 22, w, 2);
+
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
   return tex;
 }
 
-// Texture áo sơ mi thủy thủ nữ sinh Nhật (trắng cotton + cổ xanh than viền trắng + nơ đỏ + túi ngực)
-// Quy ước UV: u = 0.25 là mặt trước (+Z), u = 0.75 là mặt sau (-Z), v = 1 là cổ áo (canvas y=0), v = 0 là gấu áo (canvas y=h)
+// Texture cổ áo thủy thủ 3D (xanh than wool-twill + 2 viền sọc trắng ngà sắc nét)
+export function createSailorCollarTexture() {
+  const w = 1024, h = 512;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#172236');
+  bg.addColorStop(0.6, '#141e30');
+  bg.addColorStop(1, '#101828');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  // Fine twill texture
+  for (let x = 0; x < w; x += 3) {
+    ctx.fillStyle = x % 6 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.04)';
+    ctx.fillRect(x, 0, 1, h);
+  }
+
+  // Crisp twin ivory sailor stripes running parallel to outer edge (near bottom of collar UV v=0 -> canvas y=h)
+  ctx.fillStyle = '#f2f5fb';
+  ctx.fillRect(0, h - 58, w, 14);
+  ctx.fillRect(0, h - 32, w, 10);
+
+  // Delicate dark hem border
+  ctx.fillStyle = '#0d1422';
+  ctx.fillRect(0, h - 10, w, 10);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+// Texture tay áo ngắn thủy thủ (trắng cotton poplin + viền cổ tay xanh than 2 sọc trắng)
+export function createSailorSleeveTexture() {
+  const w = 512, h = 512;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#f8f9fc');
+  bg.addColorStop(0.75, '#f1f4f9');
+  bg.addColorStop(1, '#e8edf6');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  for (let y = 0; y < h; y += 3) {
+    ctx.fillStyle = y % 6 === 0 ? 'rgba(175,188,210,0.06)' : 'rgba(255,255,255,0.10)';
+    ctx.fillRect(0, y, w, 1);
+  }
+
+  // Navy sailor cuff band at sleeve bottom (78%..100%) with twin ivory stripes
+  ctx.fillStyle = '#151f33';
+  ctx.fillRect(0, h * 0.78, w, h * 0.22);
+  ctx.fillStyle = '#f1f5fb';
+  ctx.fillRect(0, h * 0.835, w, 11);
+  ctx.fillRect(0, h * 0.895, w, 9);
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.fillRect(0, h * 0.78, w, 3);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+// Texture áo sơ mi thủy thủ nữ sinh Nhật (vải cotton poplin trắng tinh tế, nẹp cúc ngọc trai, túi ngực)
+// Quy ước UV: u = 0.25 là mặt trước (+frontTheta), u = 0.75 là mặt sau, v = 1 là vai/cổ (canvas y=0), v = 0 là gấu áo (canvas y=h)
 export function createSchoolShirtTexture() {
   const w = 1024, h = 1024;
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   const ctx = c.getContext('2d');
 
-  // 1. Nền vải cotton poplin trắng ngà mềm mại
+  // 1. Nền vải cotton poplin trắng ngà mềm mại, có chiều sâu tự nhiên
   const bg = ctx.createLinearGradient(0, 0, 0, h);
-  bg.addColorStop(0, '#f7f8fc');
-  bg.addColorStop(0.5, '#f2f4f9');
-  bg.addColorStop(1, '#e8ecf5');
+  bg.addColorStop(0.0, '#f8f9fd');
+  bg.addColorStop(0.45, '#f3f5fa');
+  bg.addColorStop(0.82, '#ebeff7');
+  bg.addColorStop(1.0, '#dde3ef');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
-  // Sợi dệt ngang/dọc cực mịn tạo chất vải thật
+  // Sợi dệt cotton mịn
   for (let y = 0; y < h; y += 3) {
-    ctx.fillStyle = (y % 6 === 0) ? 'rgba(180,192,212,0.08)' : 'rgba(255,255,255,0.14)';
+    ctx.fillStyle = (y % 6 === 0) ? 'rgba(175,188,208,0.06)' : 'rgba(255,255,255,0.12)';
     ctx.fillRect(0, y, w, 1);
   }
   for (let x = 0; x < w; x += 4) {
-    ctx.fillStyle = (x % 8 === 0) ? 'rgba(155,170,196,0.06)' : 'rgba(255,255,255,0.08)';
+    ctx.fillStyle = (x % 8 === 0) ? 'rgba(155,170,196,0.05)' : 'rgba(255,255,255,0.07)';
     ctx.fillRect(x, 0, 1, h);
   }
 
   const frontX = w * 0.25;
-  const backX = w * 0.75;
 
-  // 2. Đường nẹp khuy áo chính giữa mặt trước (u = 0.25) chạy dưới cổ chữ V
-  ctx.fillStyle = 'rgba(220,226,238,0.52)';
-  ctx.fillRect(frontX - 16, h * 0.10, 32, h * 0.90);
-  ctx.strokeStyle = 'rgba(160,172,195,0.55)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(frontX - 16, h * 0.10); ctx.lineTo(frontX - 16, h);
-  ctx.moveTo(frontX + 16, h * 0.10); ctx.lineTo(frontX + 16, h);
-  ctx.stroke();
-
-  // Hàng cúc ngọc trai nhỏ dọc nẹp áo
-  for (let i = 0; i < 5; i++) {
-    const by = h * (0.28 + i * 0.14);
-    ctx.fillStyle = 'rgba(130,142,165,0.38)';
-    ctx.beginPath(); ctx.arc(frontX + 1.5, by + 1.5, 6.5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fdfefe';
-    ctx.beginPath(); ctx.arc(frontX, by, 6, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#c8d2e2';
-    ctx.beginPath(); ctx.arc(frontX - 2, by, 1.2, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(frontX + 2, by, 1.2, 0, Math.PI * 2); ctx.fill();
+  // Đường chiết ly eo tinh tế (tailored princess darts) tạo phom ôm eo thon tự nhiên
+  for (const dx of [-105, 105]) {
+    const dartG = ctx.createLinearGradient(frontX + dx - 16, 0, frontX + dx + 16, 0);
+    dartG.addColorStop(0.0, 'rgba(130,145,175,0)');
+    dartG.addColorStop(0.5, 'rgba(130,145,175,0.13)');
+    dartG.addColorStop(1.0, 'rgba(130,145,175,0)');
+    ctx.fillStyle = dartG;
+    ctx.fillRect(frontX + dx - 16, h * 0.42, 32, h * 0.56);
   }
 
-  // 3. Túi ngực trái có viền xanh than nhỏ
-  const pX = w * 0.34, pY = h * 0.44, pW = 82, pH = 92;
-  ctx.fillStyle = '#eef1f8';
-  ctx.beginPath();
-  ctx.moveTo(pX, pY); ctx.lineTo(pX + pW, pY);
-  ctx.lineTo(pX + pW, pY + pH - 16);
-  ctx.lineTo(pX + pW * 0.5, pY + pH);
-  ctx.lineTo(pX, pY + pH - 16);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(148,162,188,0.62)';
-  ctx.lineWidth = 2.5;
-  ctx.stroke();
-  ctx.fillStyle = '#182236';
-  ctx.fillRect(pX, pY, pW, 8);
-
-  // 4. Cổ áo thủy thủ xanh than (Sailor Collar) liền khối ôm sát viền cổ chữ V (mesh đã cắt chữ V ở r=0)
-  // - Lưng áo (u = 0.75): tà cổ vuông rủ xuống ~34% chiều cao lưng
-  const backColW = w * 0.36;
-  const backColH = h * 0.33;
-  ctx.fillStyle = '#162033';
-  ctx.fillRect(backX - backColW * 0.5, 0, backColW, backColH);
-
-  // - Dải cổ thủy thủ chạy đều dọc mép trên (bám sát chữ V trước ngực và nối liền qua 2 vai ra lưng)
-  ctx.fillStyle = '#162033';
+  // Bóng đổ nhẹ ngay dưới đường cổ thủy thủ 3D để cổ áo nổi khối tự nhiên
+  ctx.fillStyle = 'rgba(20,30,48,0.10)';
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(w, 0);
-  ctx.lineTo(w, h * 0.14);
-  ctx.lineTo(backX + backColW * 0.5, h * 0.14);
-  ctx.lineTo(backX + backColW * 0.5, backColH);
-  ctx.lineTo(backX - backColW * 0.5, backColH);
-  ctx.lineTo(backX - backColW * 0.5, h * 0.14);
-  ctx.lineTo(frontX + 160, h * 0.14);
-  ctx.lineTo(frontX, h * 0.24);
-  ctx.lineTo(frontX - 160, h * 0.14);
-  ctx.lineTo(0, h * 0.14);
+  ctx.lineTo(w, h * 0.08);
+  ctx.lineTo(frontX + 150, h * 0.08);
+  ctx.lineTo(frontX, h * 0.16);
+  ctx.lineTo(frontX - 150, h * 0.08);
+  ctx.lineTo(0, h * 0.08);
   ctx.closePath();
   ctx.fill();
 
-  // - Hai đường sọc trắng sắc nét chạy dọc mép dưới cổ thủy thủ (cả trước chữ V lẫn tà vuông sau lưng)
-  const drawCollarStripe = (inset, lw) => {
-    ctx.strokeStyle = '#eef3fa';
-    ctx.lineWidth = lw;
-    ctx.beginPath();
-    ctx.moveTo(0, h * 0.14 - inset);
-    ctx.lineTo(frontX - 160, h * 0.14 - inset);
-    ctx.lineTo(frontX, h * 0.24 - inset);
-    ctx.lineTo(frontX + 160, h * 0.14 - inset);
-    ctx.lineTo(backX - backColW * 0.5 + inset, h * 0.14 - inset);
-    ctx.lineTo(backX - backColW * 0.5 + inset, backColH - inset);
-    ctx.lineTo(backX + backColW * 0.5 - inset, backColH - inset);
-    ctx.lineTo(backX + backColW * 0.5 - inset, h * 0.14 - inset);
-    ctx.lineTo(w, h * 0.14 - inset);
-    ctx.stroke();
-  };
-  drawCollarStripe(14, 7);
-  drawCollarStripe(28, 4.5);
+  // 2. Nẹp cúc áo thanh mảnh chính giữa mặt trước (u = 0.25) chạy dưới cổ chữ V
+  ctx.fillStyle = 'rgba(222,228,240,0.48)';
+  ctx.fillRect(frontX - 14, h * 0.12, 28, h * 0.88);
+  ctx.strokeStyle = 'rgba(158,172,196,0.52)';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(frontX - 14, h * 0.12); ctx.lineTo(frontX - 14, h);
+  ctx.moveTo(frontX + 14, h * 0.12); ctx.lineTo(frontX + 14, h);
+  ctx.stroke();
 
-  // 5. Viền gấu áo phía dưới nhẹ nhàng
-  ctx.fillStyle = 'rgba(22,32,51,0.14)';
-  ctx.fillRect(0, h - 18, w, 18);
+  // Hàng cúc ngọc trai nhỏ thanh lịch
+  for (let i = 0; i < 4; i++) {
+    const by = h * (0.34 + i * 0.155);
+    ctx.fillStyle = 'rgba(120,134,160,0.34)';
+    ctx.beginPath(); ctx.arc(frontX + 1.5, by + 1.5, 5.8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fefeff';
+    ctx.beginPath(); ctx.arc(frontX, by, 5.3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#c4cfe0';
+    ctx.beginPath(); ctx.arc(frontX - 1.8, by, 1.1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(frontX + 1.8, by, 1.1, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // 3. Túi ngực trái nhỏ gọn có viền xanh than thanh lịch
+  const pX = w * 0.325, pY = h * 0.42, pW = 68, pH = 76;
+  ctx.fillStyle = '#eff2f9';
+  ctx.beginPath();
+  ctx.moveTo(pX, pY); ctx.lineTo(pX + pW, pY);
+  ctx.lineTo(pX + pW, pY + pH - 13);
+  ctx.lineTo(pX + pW * 0.5, pY + pH);
+  ctx.lineTo(pX, pY + pH - 13);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(148,162,188,0.58)';
+  ctx.lineWidth = 2.0;
+  ctx.stroke();
+  ctx.fillStyle = '#162033';
+  ctx.fillRect(pX, pY, pW, 7);
+
+  // 4. Viền cổ trong xanh than mảnh bám sát chữ V (không bị hở trắng dưới mép cổ 3D)
+  ctx.fillStyle = '#151f33';
+  ctx.fillRect(0, 0, w, h * 0.032);
 
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
@@ -582,4 +676,194 @@ export function createStudioBackdropTexture() {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+// Plain-weave cotton poplin normal + matte roughness map (for tailored schoolgirl shirt & sleeves)
+export function createCottonWeaveMaps() {
+  const size = 256;
+  const nC = document.createElement('canvas'); nC.width = size; nC.height = size;
+  const rC = document.createElement('canvas'); rC.width = size; rC.height = size;
+  const nCtx = nC.getContext('2d');
+  const rCtx = rC.getContext('2d');
+  const nImg = nCtx.createImageData(size, size);
+  const rImg = rCtx.createImageData(size, size);
+  const noise = createTileableNoise(811);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Crisp 1/1 plain-weave cotton warp & weft threads (4px period)
+      const u = (x % 4) / 4;
+      const v = (y % 4) / 4;
+      const cell = ((Math.floor(x / 4) + Math.floor(y / 4)) & 1);
+      const slub = (noise.fbm(x / size, y / size, 6, 6, 3) - 0.5) * 0.18;
+
+      let nx = 0, ny = 0, height = 0.5;
+      if (cell === 0) {
+        // Horizontal weft thread over warp
+        ny = Math.cos(v * Math.PI * 2) * 0.42;
+        nx = Math.sin(u * Math.PI) * 0.14;
+        height = 0.65 + 0.25 * Math.sin(v * Math.PI);
+      } else {
+        // Vertical warp thread over weft
+        nx = Math.cos(u * Math.PI * 2) * 0.42;
+        ny = Math.sin(v * Math.PI) * 0.14;
+        height = 0.65 + 0.25 * Math.sin(u * Math.PI);
+      }
+      nx += slub * 0.35;
+      ny -= slub * 0.35;
+      const nz = Math.sqrt(Math.max(0.15, 1 - nx * nx - ny * ny));
+      const idx = (y * size + x) * 4;
+      nImg.data[idx]     = Math.floor((nx * 0.5 + 0.5) * 255);
+      nImg.data[idx + 1] = Math.floor((ny * 0.5 + 0.5) * 255);
+      nImg.data[idx + 2] = Math.floor((nz * 0.5 + 0.5) * 255);
+      nImg.data[idx + 3] = 255;
+
+      // Matte woven cotton roughness (0.80..0.95)
+      const rough = clamp(0.86 - (height - 0.5) * 0.12 + slub * 0.15, 0.76, 0.96);
+      const rb = Math.floor(rough * 255);
+      rImg.data[idx] = rb; rImg.data[idx + 1] = rb; rImg.data[idx + 2] = rb; rImg.data[idx + 3] = 255;
+    }
+  }
+  nCtx.putImageData(nImg, 0, 0);
+  rCtx.putImageData(rImg, 0, 0);
+
+  const normalMap = new THREE.CanvasTexture(nC);
+  normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+  normalMap.repeat.set(16, 16);
+  normalMap.anisotropy = 8;
+
+  const roughnessMap = new THREE.CanvasTexture(rC);
+  roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
+  roughnessMap.repeat.set(16, 16);
+  roughnessMap.anisotropy = 8;
+
+  return { normalMap, roughnessMap };
+}
+
+// Heavy diagonal 2/2 serge wool-twill normal + matte roughness map (for pleated skirt & sailor collar)
+export function createWoolTwillMaps() {
+  const size = 256;
+  const nC = document.createElement('canvas'); nC.width = size; nC.height = size;
+  const rC = document.createElement('canvas'); rC.width = size; rC.height = size;
+  const nCtx = nC.getContext('2d');
+  const rCtx = rC.getContext('2d');
+  const nImg = nCtx.createImageData(size, size);
+  const rImg = rCtx.createImageData(size, size);
+  const noise = createTileableNoise(937);
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Diagonal 45° twill rib (6px pitch) + subtle wool felt grain
+      const diag = ((x + y) / 6) * Math.PI * 2;
+      const cross = ((x - y) / 4) * Math.PI * 2;
+      const woolFuzz = (noise.fbm(x / size, y / size, 10, 10, 3) - 0.5) * 0.28;
+      const rib = Math.sin(diag);
+      const nx = Math.cos(diag) * 0.36 + Math.cos(cross) * 0.10 + woolFuzz * 0.45;
+      const ny = Math.cos(diag) * 0.36 - Math.cos(cross) * 0.10 - woolFuzz * 0.45;
+      const nz = Math.sqrt(Math.max(0.15, 1 - nx * nx - ny * ny));
+
+      const idx = (y * size + x) * 4;
+      nImg.data[idx]     = Math.floor((nx * 0.5 + 0.5) * 255);
+      nImg.data[idx + 1] = Math.floor((ny * 0.5 + 0.5) * 255);
+      nImg.data[idx + 2] = Math.floor((nz * 0.5 + 0.5) * 255);
+      nImg.data[idx + 3] = 255;
+
+      // Heavy matte serge wool roughness (0.84..0.97)
+      const rough = clamp(0.90 - rib * 0.05 + woolFuzz * 0.14, 0.80, 0.98);
+      const rb = Math.floor(rough * 255);
+      rImg.data[idx] = rb; rImg.data[idx + 1] = rb; rImg.data[idx + 2] = rb; rImg.data[idx + 3] = 255;
+    }
+  }
+  nCtx.putImageData(nImg, 0, 0);
+  rCtx.putImageData(rImg, 0, 0);
+
+  const normalMap = new THREE.CanvasTexture(nC);
+  normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+  normalMap.repeat.set(22, 12);
+  normalMap.anisotropy = 8;
+
+  const roughnessMap = new THREE.CanvasTexture(rC);
+  roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
+  roughnessMap.repeat.set(22, 12);
+  roughnessMap.anisotropy = 8;
+
+  return { normalMap, roughnessMap };
+}
+
+// Feathered jagged woven-cloth torn edge texture (replaces thin stocking-like LineSegments!)
+// v=0 (bottom/attached to intact fabric) -> opaque solid cloth; v=1 (outer torn tip) -> ragged cotton/wool fringe & uneven cloth teeth
+export function createTornClothEdgeTexture(baseHex = '#eef1f8', rawEdgeHex = '#ffffff') {
+  const w = 256, h = 128;
+  const colC = document.createElement('canvas'); colC.width = w; colC.height = h;
+  const alpC = document.createElement('canvas'); alpC.width = w; alpC.height = h;
+  const cCtx = colC.getContext('2d');
+  const aCtx = alpC.getContext('2d');
+
+  // Subtle fabric color grading toward visible lighter raw torn weft/warp threads at tip
+  const cGrad = cCtx.createLinearGradient(0, h, 0, 0);
+  cGrad.addColorStop(0.0, baseHex);
+  cGrad.addColorStop(0.42, baseHex);
+  cGrad.addColorStop(0.76, rawEdgeHex);
+  cGrad.addColorStop(1.0, rawEdgeHex);
+  cCtx.fillStyle = cGrad;
+  cCtx.fillRect(0, 0, w, h);
+
+  // Crisp woven weft/warp grain & bright raw loose yarn highlights near ripped rim
+  for (let y = 0; y < h; y += 3) {
+    cCtx.fillStyle = y % 6 === 0 ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.16)';
+    cCtx.fillRect(0, y, w, 1);
+  }
+  for (let x = 0; x < w; x += 4) {
+    cCtx.fillStyle = 'rgba(255,255,255,0.14)';
+    cCtx.fillRect(x, 0, 1, h * 0.55);
+  }
+
+  // Alpha: solid ragged cloth base with uneven torn teeth + short thick woven fringe (NOT spiderweb nylon!)
+  aCtx.fillStyle = '#000';
+  aCtx.fillRect(0, 0, w, h);
+
+  let seed = 4219;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+
+  // Solid jagged cloth teeth body with dramatic uneven rips + woven cotton/wool fringe (zero straight 90° edges!)
+  aCtx.fillStyle = '#fff';
+  aCtx.beginPath();
+  aCtx.moveTo(0, h);
+  for (let x = 0; x <= w; x += 3) {
+    const wave =
+      Math.sin((x / w) * Math.PI * 10) * 20 +
+      Math.sin((x / w) * Math.PI * 24 + 1.1) * 14 +
+      (rand() - 0.5) * 22;
+    const yEdge = clamp(h * 0.56 + wave, h * 0.14, h * 0.86);
+    aCtx.lineTo(x, yEdge);
+  }
+  aCtx.lineTo(w, h);
+  aCtx.closePath();
+  aCtx.fill();
+
+  // Thick raw woven weft/warp cotton & wool tufts projecting past the jagged teeth
+  for (let x = 0; x < w; x += 2) {
+    const tuftH = 14 + rand() * 44;
+    const yBase = h * 0.58 + (rand() - 0.5) * 24;
+    aCtx.strokeStyle = `rgba(255,255,255,${0.62 + rand() * 0.38})`;
+    aCtx.lineWidth = 1.6 + rand() * 2.2;
+    aCtx.beginPath();
+    aCtx.moveTo(x, yBase + 10);
+    aCtx.lineTo(x + (rand() - 0.5) * 9, Math.max(2, yBase - tuftH));
+    aCtx.stroke();
+  }
+
+  const map = new THREE.CanvasTexture(colC);
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.ClampToEdgeWrapping;
+  map.colorSpace = THREE.SRGBColorSpace;
+
+  const alphaMap = new THREE.CanvasTexture(alpC);
+  alphaMap.wrapS = THREE.RepeatWrapping;
+  alphaMap.wrapT = THREE.ClampToEdgeWrapping;
+
+  return { map, alphaMap };
 }

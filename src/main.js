@@ -62,6 +62,7 @@ controls.maxAzimuthAngle = Infinity;
 controls.enableRotate = true;
 controls.enablePan = true;
 controls.enableZoom = true;
+controls.zoomSpeed = 0.32;
 controls.mouseButtons = {
   LEFT: THREE.MOUSE.ROTATE,
   MIDDLE: THREE.MOUSE.PAN,
@@ -141,7 +142,7 @@ let pinnedGrab = null;
 function getHullMeshes() {
   if (!isReady) return [];
   const list = [...cloths.map(c => c.hullMesh), skirtCloth.hullMesh];
-  if (shirtCloth) list.push(shirtCloth.hullMesh);
+  if (shirtCloth) list.push(...shirtCloth.getPickMeshes());
   return list;
 }
 
@@ -180,9 +181,8 @@ function computeSurfaceNormal(cloth, pt) {
   return v.normalize();
 }
 
-function createGrabCluster(cloth, hitPoint) {
+function createGrabCluster(cloth, hitPoint, grabRadius = 0.066) {
   const nodes = [];
-  const grabRadius = 0.066;
   for (let i = 0; i < cloth.numNodes; i++) {
     if (cloth.pinned[i] || cloth.intactDegree[i] === 0) continue;
     const i3 = i * 3;
@@ -228,8 +228,14 @@ function onPointerDown(e) {
 
   const hit = hits[0];
   const cloth = hit.object.userData.cloth;
-  const nodes = createGrabCluster(cloth, hit.point);
-  if (nodes.length === 0) return;
+  const onBow = !!hit.object.userData.isBow;
+  const onCollar = !!hit.object.userData.isCollar;
+  const onSleeve = !!hit.object.userData.isSleeve;
+  const nodes = createGrabCluster(cloth, hit.point, (onBow || onCollar || onSleeve) ? 0.16 : 0.066);
+  if (onBow && cloth.bowAnchorNode != null && !nodes.some(n => n.idx === cloth.bowAnchorNode)) {
+    nodes.push({ idx: cloth.bowAnchorNode, ox: 0, oy: 0, oz: 0, weight: 1 });
+  }
+  if (nodes.length === 0 && !onSleeve) return;
 
   // Đang túm vải để kéo & xé -> khóa camera tạm thời trong cú kéo này
   e.stopImmediatePropagation();
@@ -248,7 +254,10 @@ function onPointerDown(e) {
     target: hit.point.clone(),
     prevTarget: hit.point.clone(),
     peakStretchSeen: 0,
-    brokeAny: false
+    brokeAny: false,
+    ripBow: onBow,
+    hideCollar: onCollar,
+    sleeveMesh: onSleeve ? hit.object : null
   };
 
   container.classList.add('grabbing');
@@ -560,25 +569,6 @@ document.querySelectorAll('.size-btn').forEach(btn => {
   });
 });
 
-document.querySelectorAll('.skin-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const tone = SKIN_TONES[btn.dataset.skin];
-    if (!tone) return;
-    document.querySelectorAll('.skin-btn').forEach(b => {
-      b.className = 'skin-btn studio-btn py-1.5 rounded-lg font-medium text-slate-300 hover:text-white';
-    });
-    btn.className = 'skin-btn studio-btn py-1.5 rounded-lg font-medium bg-white/90 text-slate-900';
-    if (skinMat) {
-      skinMat.color.setHex(tone.tint);
-      skinMat.sheenColor.setHex(tone.sheen);
-    }
-    handSkinMat.color.setHex(tone.handHex);
-    handSkinMat.sheenColor.setHex(tone.sheen);
-    if (upperBody) upperBody.applySkinTone(tone);
-    skinSSSUniform.value.copy(tone.sss);
-  });
-});
-
 const sliderStrength = document.getElementById('slider-strength');
 const strengthVal = document.getElementById('strength-val');
 sliderStrength.addEventListener('input', () => {
@@ -739,7 +729,7 @@ async function initCharacterScene() {
 
   let laceMat = null;
   try {
-    const { profile, legSkinMat } = await loadGLBCharacter(scene, './assets/character.glb', {
+    const { profile, legSkinMat, laceMat: glbLaceMat } = await loadGLBCharacter(scene, './assets/character.glb', {
       skinTex,
       skinSSSUniform,
       onProgress: (ratio) => {
@@ -752,6 +742,7 @@ async function initCharacterScene() {
     if (barEl) barEl.style.width = '100%';
     if (pctEl) pctEl.textContent = '100%';
     skinMat = legSkinMat;
+    laceMat = glbLaceMat || null;
     setCustomLegProfile(profile);
   } catch (err) {
     console.error('Không tải được character.glb, dùng model mặc định:', err);

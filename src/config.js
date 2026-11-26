@@ -25,11 +25,11 @@ export const MESH_PRESETS = {
 };
 
 export const VIEWS = {
-  full:  { pos: new THREE.Vector3(0, 1.48, 3.85), target: new THREE.Vector3(0, 1.38, 0.04) },
-  face:  { pos: new THREE.Vector3(0, 2.24, 1.32), target: new THREE.Vector3(0, 2.12, 0.04) },
-  view1: { pos: new THREE.Vector3(0, 1.54, 1.62), target: new THREE.Vector3(0, 1.48, 0.06) },
-  view2: { pos: new THREE.Vector3(0, 0.82, 1.52), target: new THREE.Vector3(0, 0.78, 0.06) },
-  side:  { pos: new THREE.Vector3(1.42, 1.42, 1.04), target: new THREE.Vector3(0, 1.36, 0.04) }
+  full:  { pos: new THREE.Vector3(0, 1.44, 4.45), target: new THREE.Vector3(0, 1.36, 0.04) },
+  face:  { pos: new THREE.Vector3(0, 2.14, 1.48), target: new THREE.Vector3(0, 2.04, 0.04) },
+  view1: { pos: new THREE.Vector3(0, 1.48, 1.72), target: new THREE.Vector3(0, 1.42, 0.05) },
+  view2: { pos: new THREE.Vector3(0, 0.72, 1.78), target: new THREE.Vector3(0, 0.64, 0.06) },
+  side:  { pos: new THREE.Vector3(1.85, 1.42, 1.35), target: new THREE.Vector3(0, 1.34, 0.04) }
 };
 
 export const appState = {

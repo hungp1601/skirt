@@ -37,11 +37,11 @@ export function createStockingSystem({ scene, camera, fiberDust, laceMat }) {
   const sheerMaterial = new THREE.MeshPhysicalMaterial({
     color: COLOR_PRESETS.black.sheerHex,
     normalMap: sheerNormalTex,
-    normalScale: new THREE.Vector2(0.16, 0.16),
-    roughness: 0.40,
+    normalScale: new THREE.Vector2(0.035, 0.035),
+    roughness: 0.46,
     metalness: 0.02,
-    sheen: 0.85,
-    sheenRoughness: 0.38,
+    sheen: 0.90,
+    sheenRoughness: 0.36,
     sheenColor: new THREE.Color(COLOR_PRESETS.black.sheenHex),
     envMapIntensity: 0.55,
     transparent: true,
@@ -194,11 +194,12 @@ export function createStockingSystem({ scene, camera, fiberDust, laceMat }) {
       this.knotRadius = cfg.knotR;
       this.tMin = prof ? prof.tMin : 0.145;
       this.tMax = prof ? prof.tMax : 0.975;
-      // Ôm bó sát da từng đường cong đùi, gối, bắp chân và cổ chân
+      // Ôm bó sát da từng đường cong đùi, gối, bắp chân và cổ chân (tất mỏng sheer cộng thêm +2mm để mặt phẳng tam giác không lún xuyên da)
       const isTight = !prof || prof.tightLeg;
+      const isSheerMode = appState.stockingType === 'sheer';
       this.radialOffset = isTight
-        ? (presetKey === 'large' ? 0.0026 : 0.0019)
-        : (presetKey === 'large' ? 0.0085 : 0.0062);
+        ? (isSheerMode ? 0.0038 : (presetKey === 'large' ? 0.0023 : 0.0017))
+        : (isSheerMode ? 0.0085 : (presetKey === 'large' ? 0.0085 : 0.0062));
       this.hoopPreTension = isTight ? 0.945 : 0.985;
 
       this.numNodes = this.NU * (this.NV + 1);
@@ -959,7 +960,7 @@ export function createStockingSystem({ scene, camera, fiberDust, laceMat }) {
           const angA = Math.atan2(az - cA.cz, ax - cA.cx) + 0.014;
           const angB = Math.atan2(bz - cB.cz, bx - cB.cx) + 0.014;
           const profCur = getCustomLegProfile();
-          const shOff = (profCur && !profCur.tightLeg) ? 0.0032 : 0.00075;
+          const shOff = (profCur && !profCur.tightLeg) ? 0.0032 : 0.00055;
           const rA = getLegSkinRadius(this.side, tA, angA) + shOff;
           const rB = getLegSkinRadius(this.side, tB, angB) + shOff;
 

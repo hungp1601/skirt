@@ -213,6 +213,49 @@ export class SoundEngine {
     biteSrc.start(now, Math.random() * 1.5, 0.04);
   }
 
+  // Distinct dry woven cotton / wool cloth ripping sound ("XOẸT / RÁCH!") — deeper & crisper than elastic nylon stockings
+  playClothRip(cascade = 0, isHeavyWool = false) {
+    if (!this.enabled || !this.ctx || !this.clothRipBuffer || !this.pinkBuffer) return;
+    const now = this.ctx.currentTime;
+    const dt = now - this.lastSnapTime;
+    if (dt < 0.036) return;
+    this.lastSnapTime = now;
+
+    if (dt < 0.18) this.ripMomentum = Math.min(1.0, this.ripMomentum + 0.40);
+    else           this.ripMomentum = Math.max(0.0, this.ripMomentum * 0.25);
+    const heat = clamp(this.ripMomentum + (cascade > 1 ? 0.35 : 0), 0, 1);
+
+    // Dry woven fiber rip body
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.clothRipBuffer;
+    src.playbackRate.setValueAtTime((isHeavyWool ? 0.68 : 0.82) + Math.random() * 0.18, now);
+
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    const f0 = (isHeavyWool ? 420 : 560) + Math.random() * 160;
+    const dur = (isHeavyWool ? 0.145 : 0.125) + heat * 0.11;
+    bp.frequency.setValueAtTime(f0, now);
+    bp.frequency.exponentialRampToValueAtTime(f0 * 1.55, now + dur);
+    bp.Q.value = 0.65;
+
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(isHeavyWool ? 1750 : 2250, now);
+
+    const gain = this.ctx.createGain();
+    const vol = (isHeavyWool ? 0.58 : 0.50) + heat * 0.20;
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(vol, now + 0.008);
+    gain.gain.setValueAtTime(vol * 0.78, now + dur * 0.55);
+    gain.gain.exponentialRampToValueAtTime(0.0008, now + dur);
+
+    src.connect(bp);
+    bp.connect(lp);
+    lp.connect(gain);
+    gain.connect(this.ctx.destination);
+    src.start(now, Math.random() * 1.3, dur + 0.03);
+  }
+
   playChime(success = true) {
     if (!this.enabled || !this.ctx) return;
     const now = this.ctx.currentTime;
