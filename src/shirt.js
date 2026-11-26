@@ -1,0 +1,543 @@
+import * as THREE from 'three';
+import { appState } from './config.js';
+import { clamp, getCustomLegProfile } from './math.js';
+import { createSchoolShirtTexture } from './textures.js';
+import { sound } from './audio.js';
+
+// =========================================================================
+// TEARABLE JAPANESE SCHOOLGIRL SAILOR BLOUSE (Áo nữ sinh có thể kéo & xé)
+// Bám 360° theo thân trên GLB (tự tránh cánh tay), kéo giãn & xé rách hoàn toàn
+// =========================================================================
+export class TearableSchoolShirt {
+  constructor(scene, fiberDust) {
+    this.scene = scene;
+    this.fiberDust = fiberDust;
+    this.isShirt = true;
+    this.side = 0;
+
+    const prof = getCustomLegProfile();
+    this.shirtProfile = prof ? prof.shirtProfile : null;
+
+    this.NU = 72;
+    this.NV = 26;
+    this.yTop = this.shirtProfile ? this.shirtProfile.yTop : 2.26;
+    this.yBot = this.shirtProfile ? this.shirtProfile.yBot : 1.78;
+    // Xoay tâm cổ áo & nơ khớp đúng hướng ngực thật của nhân vật
+    this.frontTheta = (this.shirtProfile && this.shirtProfile.frontTheta !== undefined)
+      ? this.shirtProfile.frontTheta
+      : Math.PI * 0.5;
+    this.thetaOffset = this.frontTheta - Math.PI * 0.5;
+
+    this.shirtMaterial = new THREE.MeshPhysicalMaterial({
+      map: createSchoolShirtTexture(),
+      roughness: 0.72,
+      metalness: 0.02,
+      sheen: 0.35,
+      sheenRoughness: 0.62,
+      sheenColor: new THREE.Color(0xf8fafc),
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+      side: THREE.DoubleSide
+    });
+
+    this.frayMaterial = new THREE.LineBasicMaterial({
+      color: 0xe2e8f0,
+      transparent: true,
+      opacity: 0.90
+    });
+
+    this.numNodes = this.NU * (this.NV + 1);
+    this.pos = new Float32Array(this.numNodes * 3);
+    this.prevPos = new Float32Array(this.numNodes * 3);
+    this.restPos = new Float32Array(this.numNodes * 3);
+    this.pinned = new Uint8Array(this.numNodes);
+    this.intactDegree = new Uint8Array(this.numNodes);
+    this.brokenDegree = new Uint8Array(this.numNodes);
+    this.isAwake = true;
+    this.sleepFrames = 0;
+
+    this.numRenderVerts = (this.NU + 1) * (this.NV + 1);
+    this.renderPos = new Float32Array(this.numRenderVerts * 3);
+    this.renderUVs = new Float32Array(this.numRenderVerts * 2);
+
+    this.initParticlesAndSprings();
+
+    this.geo = new THREE.BufferGeometry();
+    this.geo.setAttribute('position', new THREE.BufferAttribute(this.renderPos, 3));
+    this.geo.setAttribute('uv', new THREE.BufferAttribute(this.renderUVs, 2));
+    this.mesh = new THREE.Mesh(this.geo, this.shirtMaterial);
+    this.mesh.castShadow = true;
+    this.mesh.receiveShadow = true;
+    this.mesh.userData.cloth = this;
+    this.hullMesh = this.mesh;
+    scene.add(this.mesh);
+
+    this.frayGeo = new THREE.BufferGeometry();
+    this.frayLines = new THREE.LineSegments(this.frayGeo, this.frayMaterial);
+    this.frayLines.frustumCulled = false;
+    scene.add(this.frayLines);
+
+    // Nơ đỏ 3D gắn đúng đỉnh chữ V cổ áo chính giữa ngực (rơi/ẩn nếu vùng cổ áo bị xé toạc)
+    this.bowGroup = this.createRibbonBow3D();
+    scene.add(this.bowGroup);
+    this.bowAnchorNode = Math.round(this.NV * 0.08) * this.NU + Math.round(this.NU * 0.25);
+
+    this.rebuildIndices();
+    this.updateVisualGeometry();
+  }
+
+  createRibbonBow3D() {
+    const g = new THREE.Group();
+    const ribMat = new THREE.MeshPhysicalMaterial({
+      color: 0xb91c3a,
+      roughness: 0.42,
+      metalness: 0.04,
+      sheen: 0.7,
+      sheenColor: new THREE.Color(0xfca5a5),
+      side: THREE.DoubleSide
+    });
+    const knot = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.024, 0.014), ribMat);
+    g.add(knot);
+    for (const s of [-1, 1]) {
+      const wing = new THREE.Mesh(new THREE.SphereGeometry(0.024, 14, 10), ribMat);
+      wing.scale.set(1.35, 0.62, 0.35);
+      wing.position.set(s * 0.026, -0.002, 0.002);
+      wing.rotation.z = s * -0.18;
+      g.add(wing);
+
+      const tail = new THREE.Mesh(new THREE.PlaneGeometry(0.020, 0.088), ribMat);
+      tail.position.set(s * 0.015, -0.048, 0.004);
+      tail.rotation.z = s * 0.16;
+      g.add(tail);
+    }
+    return g;
+  }
+
+  pIdx(r, c) {
+    return r * this.NU + ((c % this.NU + this.NU) % this.NU);
+  }
+
+  // Nội suy tâm & bán kính thân trên 360° theo chiều cao vDown (0 = cổ áo, 1 = gấu áo)
+  sampleTorsoRadius(vDown, theta) {
+    const sp = this.shirtProfile;
+    if (sp && sp.radArr) {
+      const { NS, NA, cxArr, czArr, radArr } = sp;
+      const sf = clamp(vDown, 0, 1) * (NS - 1);
+      const s0 = Math.floor(sf);
+      const s1 = Math.min(NS - 1, s0 + 1);
+      const st = sf - s0;
+
+      const cx = cxArr[s0] * (1 - st) + cxArr[s1] * st;
+      const cz = czArr[s0] * (1 - st) + czArr[s1] * st;
+
+      let ang = theta % (Math.PI * 2);
+      if (ang < 0) ang += Math.PI * 2;
+      const af = (ang / (Math.PI * 2)) * NA;
+      const a0 = Math.floor(af) % NA;
+      const a1 = (a0 + 1) % NA;
+      const at = af - Math.floor(af);
+
+      const r0 = radArr[s0 * NA + a0] * (1 - at) + radArr[s0 * NA + a1] * at;
+      const r1 = radArr[s1 * NA + a0] * (1 - at) + radArr[s1 * NA + a1] * at;
+      return { cx, cz, r: Math.max(0.06, r0 * (1 - st) + r1 * st) };
+    }
+    // Fallback cho model mặc định
+    const bust = Math.exp(-Math.pow((vDown - 0.35) / 0.24, 2));
+    const rx = 0.145 + bust * 0.032;
+    const rz = 0.105 + bust * 0.055 * Math.max(0, Math.sin(theta));
+    const cosT = Math.cos(theta), sinT = Math.sin(theta);
+    const r = Math.hypot(cosT * rx, sinT * rz);
+    return { cx: 0, cz: 0, r };
+  }
+
+  initParticlesAndSprings() {
+    const prof = getCustomLegProfile();
+    const armLimitFn = prof && prof.maxRadiusBeforeArms ? prof.maxRadiusBeforeArms : null;
+    const spanY = this.yTop - this.yBot;
+
+    for (let r = 0; r <= this.NV; r++) {
+      const vDown = r / this.NV; // 0 = viền cổ áo -> 1 = gấu áo ngang eo
+      const vTex = 1.0 - vDown;
+      // Form áo sơ mi ôm sát đường cong ngực & eo (4.5mm -> 9mm)
+      const blouseEase = 0.0045 + Math.pow(vDown, 1.4) * 0.0045;
+
+      for (let c = 0; c < this.NU; c++) {
+        const u = c / this.NU;
+        // Xoay theta theo thetaOffset để u = 0.25 luôn nằm CHÍNH GIỮA ngực thật (frontTheta)
+        const theta = u * Math.PI * 2 + this.thetaOffset;
+
+        // Khoét cổ chữ V thật ở mặt trước (u = 0.25) và hạ nhẹ sau gáy (u = 0.75) để cổ áo tự nhiên
+        let dFront = Math.abs(u - 0.25);
+        if (dFront > 0.5) dFront = 1.0 - dFront;
+        const vNeckDip = Math.max(0, 1.0 - dFront / 0.145) * 0.105;
+
+        let dBack = Math.abs(u - 0.75);
+        if (dBack > 0.5) dBack = 1.0 - dBack;
+        const backScoop = Math.max(0, 1.0 - dBack / 0.14) * 0.022;
+
+        const topY = this.yTop - vNeckDip - backScoop;
+        const y = topY - vDown * (topY - this.yBot);
+        const vBody = clamp((this.yTop - y) / spanY, 0, 1);
+
+        const { cx, cz, r: bodyR } = this.sampleTorsoRadius(vBody, theta);
+        const drape = Math.sin(theta * 10) * 0.002 * vDown;
+        let rad = bodyR + blouseEase + drape;
+        if (armLimitFn) {
+          const lim = armLimitFn(cx, cz, y, theta, 0.004);
+          rad = Math.min(rad, Math.max(bodyR + 0.004, lim));
+        }
+        const x = cx + Math.cos(theta) * rad;
+        const z = cz + Math.sin(theta) * rad;
+
+        const i = r * this.NU + c;
+        const i3 = i * 3;
+        this.pos[i3] = this.prevPos[i3] = this.restPos[i3] = x;
+        this.pos[i3 + 1] = this.prevPos[i3 + 1] = this.restPos[i3 + 1] = y;
+        this.pos[i3 + 2] = this.prevPos[i3 + 2] = this.restPos[i3 + 2] = z;
+        // Ghim chặt hàng trên cùng ở vai/cổ để áo không tụt xuống, toàn bộ thân áo kéo & xé tự do
+        this.pinned[i] = r === 0 ? 1 : 0;
+      }
+
+      for (let c = 0; c <= this.NU; c++) {
+        const vi = r * (this.NU + 1) + c;
+        this.renderUVs[vi * 2] = c / this.NU;
+        this.renderUVs[vi * 2 + 1] = vTex;
+      }
+    }
+
+    const sA = [], sB = [], sRest = [], sType = [], sRand = [];
+    this.horizSpring = new Int32Array((this.NV + 1) * this.NU).fill(-1);
+    this.vertSpring = new Int32Array(this.NV * this.NU).fill(-1);
+
+    const addSpring = (a, b, type) => {
+      const dx = this.restPos[b * 3] - this.restPos[a * 3];
+      const dy = this.restPos[b * 3 + 1] - this.restPos[a * 3 + 1];
+      const dz = this.restPos[b * 3 + 2] - this.restPos[a * 3 + 2];
+      const idx = sA.length;
+      sA.push(a); sB.push(b); sRest.push(Math.hypot(dx, dy, dz)); sType.push(type);
+      sRand.push(0.92 + Math.random() * 0.16);
+      this.intactDegree[a]++;
+      this.intactDegree[b]++;
+      return idx;
+    };
+
+    for (let r = 0; r <= this.NV; r++) {
+      for (let c = 0; c < this.NU; c++) {
+        this.horizSpring[r * this.NU + c] = addSpring(this.pIdx(r, c), this.pIdx(r, c + 1), 0);
+      }
+    }
+    for (let r = 0; r < this.NV; r++) {
+      for (let c = 0; c < this.NU; c++) {
+        this.vertSpring[r * this.NU + c] = addSpring(this.pIdx(r, c), this.pIdx(r + 1, c), 1);
+      }
+    }
+    for (let r = 0; r < this.NV; r++) {
+      for (let c = 0; c < this.NU; c++) {
+        addSpring(this.pIdx(r, c), this.pIdx(r + 1, c + 1), 2);
+      }
+    }
+
+    this.numStrands = sA.length;
+    this.sA = new Int32Array(sA);
+    this.sB = new Int32Array(sB);
+    this.sRest = new Float32Array(sRest);
+    this.sType = new Uint8Array(sType);
+    this.sRand = new Float32Array(sRand);
+    this.sBroken = new Uint8Array(this.numStrands);
+    this.sNotch = new Float32Array(this.numStrands);
+    this.sFatigue = new Float32Array(this.numStrands);
+    this.brokenStrands = 0;
+  }
+
+  wake() {
+    this.isAwake = true;
+    this.sleepFrames = 0;
+  }
+
+  repair() {
+    for (let i = 0; i < this.numNodes * 3; i++) {
+      this.pos[i] = this.restPos[i];
+      this.prevPos[i] = this.restPos[i];
+    }
+    this.sBroken.fill(0);
+    this.sNotch.fill(0);
+    this.sFatigue.fill(0);
+    this.brokenDegree.fill(0);
+    this.intactDegree.fill(0);
+    for (let s = 0; s < this.numStrands; s++) {
+      this.intactDegree[this.sA[s]]++;
+      this.intactDegree[this.sB[s]]++;
+    }
+    this.brokenStrands = 0;
+    this.isAwake = true;
+    this.sleepFrames = 0;
+    this.rebuildIndices();
+    this.updateVisualGeometry();
+  }
+
+  rebuildIndices() {
+    const indices = [];
+    const stride = this.NU + 1;
+    for (let r = 0; r < this.NV; r++) {
+      for (let c = 0; c < this.NU; c++) {
+        const cNext = (c + 1) % this.NU;
+        const hTop = this.sBroken[this.horizSpring[r * this.NU + c]];
+        const hBot = this.sBroken[this.horizSpring[(r + 1) * this.NU + c]];
+        const vLeft = this.sBroken[this.vertSpring[r * this.NU + c]];
+        const vRight = this.sBroken[this.vertSpring[r * this.NU + cNext]];
+
+        const a = r * stride + c;
+        const b = a + 1;
+        const cc = (r + 1) * stride + c;
+        const d = cc + 1;
+
+        if (!hTop && !vLeft)  indices.push(a, b, cc);
+        if (!hBot && !vRight) indices.push(b, d, cc);
+      }
+    }
+    this.geo.setIndex(indices);
+    this.geo.computeBoundingSphere();
+  }
+
+  breakSpring(sIdx, newlyBroken) {
+    if (this.sBroken[sIdx]) return;
+    this.sBroken[sIdx] = 1;
+    this.brokenStrands++;
+
+    const a = this.sA[sIdx], b = this.sB[sIdx];
+    const a3 = a * 3, b3 = b * 3;
+    const ax = this.pos[a3], ay = this.pos[a3 + 1], az = this.pos[a3 + 2];
+    const bx = this.pos[b3], by = this.pos[b3 + 1], bz = this.pos[b3 + 2];
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const dist = Math.hypot(dx, dy, dz) || 0.0001;
+    const ux = dx / dist, uy = dy / dist, uz = dz / dist;
+
+    this.intactDegree[a] = Math.max(0, this.intactDegree[a] - 1);
+    this.intactDegree[b] = Math.max(0, this.intactDegree[b] - 1);
+    this.brokenDegree[a]++;
+    this.brokenDegree[b]++;
+
+    const recoil = 0.0055;
+    if (!this.pinned[a]) {
+      this.pos[a3] -= ux * recoil; this.pos[a3 + 1] -= uy * recoil; this.pos[a3 + 2] -= uz * recoil;
+    }
+    if (!this.pinned[b]) {
+      this.pos[b3] += ux * recoil; this.pos[b3 + 1] += uy * recoil; this.pos[b3 + 2] += uz * recoil;
+    }
+
+    const r = Math.floor(a / this.NU), c = a % this.NU;
+    if (this.sType[sIdx] === 0) {
+      if (r > 1) this.sNotch[this.horizSpring[(r - 1) * this.NU + c]] = Math.min(0.55, this.sNotch[this.horizSpring[(r - 1) * this.NU + c]] + 0.24);
+      if (r < this.NV) this.sNotch[this.horizSpring[(r + 1) * this.NU + c]] = Math.min(0.55, this.sNotch[this.horizSpring[(r + 1) * this.NU + c]] + 0.24);
+    } else {
+      const cL = (c - 1 + this.NU) % this.NU, cR = (c + 1) % this.NU;
+      if (r < this.NV) {
+        this.sNotch[this.vertSpring[r * this.NU + cL]] = Math.min(0.45, this.sNotch[this.vertSpring[r * this.NU + cL]] + 0.16);
+        this.sNotch[this.vertSpring[r * this.NU + cR]] = Math.min(0.45, this.sNotch[this.vertSpring[r * this.NU + cR]] + 0.16);
+      }
+    }
+
+    const mx = (ax + bx) * 0.5, my = (ay + by) * 0.5, mz = (az + bz) * 0.5;
+    this.fiberDust.emit(mx, my, mz, (Math.random() - 0.5) * 0.012, 0.002, (Math.random() - 0.5) * 0.012, 2);
+    newlyBroken.push({ x: mx, y: my, z: mz, side: 0, isShirt: true });
+    sound.playThreadSnap(newlyBroken.length, false);
+  }
+
+  stepPhysics(activeGrabs) {
+    if (!this.isAwake && activeGrabs.length === 0) {
+      return { peakTensionRatio: 0, newlyBroken: [] };
+    }
+
+    const damping = 0.88;
+    const gravity = -0.00052;
+    let maxMotionSq = 0;
+
+    for (let i = 0; i < this.numNodes; i++) {
+      if (this.pinned[i]) continue;
+      const i3 = i * 3;
+      const x = this.pos[i3], y = this.pos[i3 + 1], z = this.pos[i3 + 2];
+      const vx = (x - this.prevPos[i3]) * damping;
+      const vy = (y - this.prevPos[i3 + 1]) * damping;
+      const vz = (z - this.prevPos[i3 + 2]) * damping;
+      const mSq = vx * vx + vy * vy + vz * vz;
+      if (mSq > maxMotionSq) maxMotionSq = mSq;
+
+      this.prevPos[i3] = x; this.prevPos[i3 + 1] = y; this.prevPos[i3 + 2] = z;
+
+      const torn = this.brokenDegree[i] > 0;
+      const formMem = torn ? 0.0 : 0.016;
+      const gMult = torn ? 1.60 : 0.55;
+      this.pos[i3]     = x + vx + (this.restPos[i3] - x) * formMem;
+      this.pos[i3 + 1] = y + vy + gravity * gMult + (this.restPos[i3 + 1] - y) * formMem;
+      this.pos[i3 + 2] = z + vz + (this.restPos[i3 + 2] - z) * formMem;
+    }
+
+    const pullStiff = 0.42 * appState.pullPower;
+    for (let gIdx = 0; gIdx < activeGrabs.length; gIdx++) {
+      const grab = activeGrabs[gIdx];
+      if (grab.cloth !== this) continue;
+      const tx = grab.target.x, ty = grab.target.y, tz = grab.target.z;
+      for (let k = 0; k < grab.nodes.length; k++) {
+        const item = grab.nodes[k];
+        if (this.intactDegree[item.idx] === 0) continue;
+        const i3 = item.idx * 3;
+        const pull = Math.min(0.74, item.weight * pullStiff);
+        this.pos[i3]     += (tx + item.ox - this.pos[i3]) * pull;
+        this.pos[i3 + 1] += (ty + item.oy - this.pos[i3 + 1]) * pull;
+        this.pos[i3 + 2] += (tz + item.oz - this.pos[i3 + 2]) * pull;
+      }
+    }
+
+    const baseThresh = Math.max(1.46, appState.strength * 0.80);
+    let peakTensionRatio = 0;
+    const newlyBroken = [];
+    const maxBreaks = 3;
+    const spanY = Math.max(0.05, this.yTop - this.yBot);
+
+    for (let iter = 0; iter < 6; iter++) {
+      let highestOver = 0, highestIdx = -1;
+      for (let s = 0; s < this.numStrands; s++) {
+        if (this.sBroken[s]) continue;
+        const a = this.sA[s], b = this.sB[s];
+        const a3 = a * 3, b3 = b * 3;
+        const dx = this.pos[b3] - this.pos[a3];
+        const dy = this.pos[b3 + 1] - this.pos[a3 + 1];
+        const dz = this.pos[b3 + 2] - this.pos[a3 + 2];
+        const dist = Math.hypot(dx, dy, dz) || 0.0001;
+        const rest = this.sRest[s];
+
+        if (iter === 0 && this.sType[s] !== 2) {
+          const stretch = dist / rest;
+          const effThresh = Math.max(1.24, baseThresh * this.sRand[s] - this.sNotch[s] - this.sFatigue[s]);
+          const tr = clamp((stretch - 1.05) / (effThresh - 1.05), 0, 1.5);
+          if (tr > peakTensionRatio) peakTensionRatio = tr;
+          if (tr > 0.86) this.sFatigue[s] = Math.min(0.24, this.sFatigue[s] + (tr - 0.86) * 0.035);
+          else if (this.sFatigue[s] > 0) this.sFatigue[s] = Math.max(0, this.sFatigue[s] - 0.015);
+
+          // Chỉ rách khi người chơi đang kéo áo
+          if (activeGrabs.length > 0 && stretch > effThresh) {
+            const over = stretch / effThresh;
+            if (over > highestOver) { highestOver = over; highestIdx = s; }
+          }
+        }
+
+        const diff = (dist - rest) / dist;
+        const stiff = this.sType[s] === 2 ? 0.34 : 0.78;
+        const corr = diff * 0.5 * stiff;
+        if (!this.pinned[a]) {
+          this.pos[a3] += dx * corr; this.pos[a3 + 1] += dy * corr; this.pos[a3 + 2] += dz * corr;
+        }
+        if (!this.pinned[b]) {
+          this.pos[b3] -= dx * corr; this.pos[b3 + 1] -= dy * corr; this.pos[b3 + 2] -= dz * corr;
+        }
+      }
+
+      if (iter < maxBreaks && highestIdx !== -1 && newlyBroken.length < maxBreaks) {
+        this.breakSpring(highestIdx, newlyBroken);
+      }
+
+      // Va chạm 360° với thân trên GLB (giữ áo ngoài da nhưng vẫn nằm trong khe giữa thân và 2 cánh tay)
+      const prof = getCustomLegProfile();
+      const armLimitFn = prof && prof.maxRadiusBeforeArms ? prof.maxRadiusBeforeArms : null;
+      for (let i = 0; i < this.numNodes; i++) {
+        if (this.pinned[i]) continue;
+        const i3 = i * 3;
+        let px = this.pos[i3], py = clamp(this.pos[i3 + 1], this.yBot - 0.16, this.yTop + 0.02), pz = this.pos[i3 + 2];
+        this.pos[i3 + 1] = py;
+
+        const vFrac = clamp((this.yTop - py) / spanY, 0, 1);
+        const thetaEst = Math.atan2(pz, px);
+        const surf = this.sampleTorsoRadius(vFrac, thetaEst);
+        const dx = px - surf.cx, dz = pz - surf.cz;
+        const theta = Math.atan2(dz, dx);
+        const surfExact = this.sampleTorsoRadius(vFrac, theta);
+        const r = Math.hypot(dx, dz) || 0.0001;
+        let minR = surfExact.r + 0.0040;
+        if (armLimitFn) {
+          minR = Math.min(minR, Math.max(surfExact.r + 0.0028, armLimitFn(surfExact.cx, surfExact.cz, py, theta, 0.003)));
+        }
+        if (r < minR) {
+          const sc = minR / r;
+          this.pos[i3] = surfExact.cx + dx * sc;
+          this.pos[i3 + 2] = surfExact.cz + dz * sc;
+        }
+      }
+    }
+
+    if (newlyBroken.length > 0) {
+      this.rebuildIndices();
+      this.sleepFrames = 0;
+    }
+
+    if (activeGrabs.length === 0 && maxMotionSq < 1e-10) {
+      this.sleepFrames++;
+      if (this.sleepFrames > 70) this.isAwake = false;
+    } else {
+      this.sleepFrames = 0;
+    }
+
+    return { peakTensionRatio, newlyBroken };
+  }
+
+  updateVisualGeometry() {
+    const stride = this.NU + 1;
+    for (let r = 0; r <= this.NV; r++) {
+      for (let c = 0; c <= this.NU; c++) {
+        const pi = r * this.NU + (c % this.NU);
+        const vi = r * stride + c;
+        const p3 = pi * 3, v3 = vi * 3;
+        this.renderPos[v3]     = this.pos[p3];
+        this.renderPos[v3 + 1] = this.pos[p3 + 1];
+        this.renderPos[v3 + 2] = this.pos[p3 + 2];
+      }
+    }
+    this.geo.attributes.position.needsUpdate = true;
+    this.geo.computeVertexNormals();
+
+    const nArr = this.geo.attributes.normal.array;
+    for (let r = 0; r <= this.NV; r++) {
+      const i0 = (r * stride) * 3;
+      const i1 = (r * stride + this.NU) * 3;
+      let nx = nArr[i0] + nArr[i1], ny = nArr[i0 + 1] + nArr[i1 + 1], nz = nArr[i0 + 2] + nArr[i1 + 2];
+      const len = Math.hypot(nx, ny, nz) || 1;
+      nx /= len; ny /= len; nz /= len;
+      nArr[i0] = nArr[i1] = nx; nArr[i0 + 1] = nArr[i1 + 1] = ny; nArr[i0 + 2] = nArr[i1 + 2] = nz;
+    }
+    this.geo.attributes.normal.needsUpdate = true;
+
+    // Cập nhật vị trí nơ đỏ 3D ngay đỉnh cổ chữ V chính giữa ngực, hướng thẳng vuông góc theo ngực thật
+    if (this.bowGroup) {
+      const a = this.bowAnchorNode;
+      if (this.intactDegree[a] <= 1) {
+        this.bowGroup.visible = false;
+      } else {
+        this.bowGroup.visible = true;
+        const a3 = a * 3;
+        const bx = this.pos[a3], by = this.pos[a3 + 1], bz = this.pos[a3 + 2];
+        const fx = Math.cos(this.frontTheta), fz = Math.sin(this.frontTheta);
+        this.bowGroup.position.set(bx + fx * 0.006, by - 0.014, bz + fz * 0.006);
+        this.bowGroup.up.set(0, 1, 0);
+        this.bowGroup.lookAt(bx + fx * 1.0, by - 0.014, bz + fz * 1.0);
+      }
+    }
+
+    if (this.brokenStrands > 0) {
+      const frayVerts = [];
+      for (let s = 0; s < this.numStrands; s++) {
+        if (!this.sBroken[s] || this.sType[s] === 2) continue;
+        const a3 = this.sA[s] * 3, b3 = this.sB[s] * 3;
+        const ax = this.pos[a3], ay = this.pos[a3 + 1], az = this.pos[a3 + 2];
+        const bx = this.pos[b3], by = this.pos[b3 + 1], bz = this.pos[b3 + 2];
+        const dx = bx - ax, dy = by - ay, dz = bz - az;
+        const d = Math.hypot(dx, dy, dz) || 1;
+        const len = Math.min(0.014, d * 0.25);
+        frayVerts.push(ax, ay, az, ax + (dx / d) * len, ay + (dy / d) * len - 0.005, az + (dz / d) * len);
+        frayVerts.push(bx, by, bz, bx - (dx / d) * len, by - (dy / d) * len - 0.005, bz - (dz / d) * len);
+      }
+      this.frayGeo.setAttribute('position', new THREE.Float32BufferAttribute(frayVerts, 3));
+    } else if (this.frayGeo.attributes.position && this.frayGeo.attributes.position.count > 0) {
+      this.frayGeo.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    }
+  }
+}

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Fishnet Tearing Mini-Game — Xé Tất &amp; Váy 3D</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- Model Loading Overlay -->
+  <div id="loading-overlay" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md transition-opacity duration-300">
+    <div class="glass-panel rounded-2xl px-6 py-5 w-72 text-center border-sky-400/25">
+      <div class="w-8 h-8 mx-auto mb-3 rounded-full border-2 border-sky-400 border-t-transparent animate-spin"></div>
+      <div id="loading-title" class="text-xs font-semibold text-white mb-1">Đang tải model nhân vật 3D...</div>
+      <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mt-2">
+        <div id="loading-bar" class="h-full bg-gradient-to-r from-sky-400 to-emerald-400 rounded-full transition-all duration-150" style="width: 8%"></div>
+      </div>
+      <div id="loading-pct" class="text-[10px] text-slate-400 mt-1.5 tabular-nums">Đang chuẩn bị...</div>
+    </div>
+  </div>
+
+  <!-- Warning banner shown ONLY if opened directly via file:// (Chrome blocks ES module imports on file://) -->
+  <div id="file-protocol-warn" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md px-4">
+    <div class="glass-panel rounded-2xl p-6 max-w-md text-center border-amber-400/40">
+      <h2 class="text-base font-bold text-amber-300 mb-2">Cần mở qua HTTP cục bộ để tải ES Modules</h2>
+      <p class="text-xs text-slate-300 leading-relaxed mb-3">
+        Chrome chặn <code class="text-sky-300">import</code> module khi mở trực tiếp bằng <code class="text-amber-200">file://</code>.
+        Hãy nhấn đúp file <code class="text-emerald-300 font-semibold">start.command</code> hoặc chạy lệnh sau trong thư mục game:
+      </p>
+      <pre class="bg-slate-900/90 text-sky-300 text-[11px] rounded-xl p-3 text-left overflow-x-auto">python3 -m http.server 8765</pre>
+      <p class="text-[11px] text-slate-400 mt-2">Sau đó mở <strong>http://localhost:8765</strong></p>
+    </div>
+  </div>
+  <script>
+    if (window.location.protocol === 'file:') {
+      document.getElementById('file-protocol-warn').classList.remove('hidden');
+    }
+  </script>
+
+  <!-- Top-Left: Game Mode Switcher & Two-Hand Pin Status -->
+  <div class="fixed top-4 left-4 z-20 flex flex-col gap-2">
+    <div class="glass-panel rounded-2xl p-1 flex items-center gap-1">
+      <button id="tab-sandbox" class="studio-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-sky-500 text-white shadow">
+        Tự do
+      </button>
+      <button id="tab-minigame" class="studio-btn px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5">
+        <span>Mini-Game</span>
+        <span class="px-1.5 py-0.2 rounded-full bg-rose-500/25 text-rose-300 text-[10px] font-bold">4 Màn</span>
+      </button>
+    </div>
+
+    <div id="pin-badge" class="hidden glass-panel rounded-xl px-3.5 py-2 text-xs text-amber-300 font-medium flex items-center gap-2 border-amber-400/35">
+      <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+      <span>Tay 1 đang ghim — Kéo bằng Tay 2 để xé 2 tay! (Phím 1 thả)</span>
+    </div>
+  </div>
+
+  <!-- Top-Center: Mini-Game HUD -->
+  <div id="game-hud" class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-20 w-[min(440px,calc(100vw-2rem))]">
+    <div class="glass-panel rounded-2xl px-4 py-3 border-sky-400/25">
+      <div class="flex items-center justify-between gap-2 mb-1">
+        <div class="flex items-center gap-2">
+          <span id="hud-level-badge" class="px-2 py-0.5 rounded-md bg-sky-500/20 text-sky-300 text-[10px] font-bold uppercase tracking-wider">Màn 1 / 4</span>
+          <h2 id="hud-title" class="text-xs sm:text-sm font-bold text-white">Kéo Căng Không Rách</h2>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="hud-timer" class="hidden text-xs font-bold tabular-nums text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded-md">20.0s</span>
+          <span id="hud-score" class="text-xs font-bold tabular-nums text-emerald-300">0 điểm</span>
+        </div>
+      </div>
+      <p id="hud-desc" class="text-[11px] text-slate-300 leading-snug mb-2">
+        Kéo tất giãn vào vùng 70%–95% độ căng và giữ 2.5 giây mà không làm đứt sợi nào!
+      </p>
+      <div class="flex items-center gap-2.5">
+        <div class="flex-1 h-2 bg-slate-800/90 rounded-full overflow-hidden">
+          <div id="hud-progress" class="h-full bg-gradient-to-r from-sky-400 via-cyan-300 to-emerald-400 rounded-full transition-all duration-100" style="width: 0%"></div>
+        </div>
+        <span id="hud-progress-text" class="text-[11px] font-bold tabular-nums text-sky-200 min-w-[44px] text-right">0%</span>
+      </div>
+      <div class="flex items-center justify-between mt-2 pt-2 border-t border-white/10 text-[10px]">
+        <div class="flex items-center gap-1">
+          <button data-lvl="0" class="lvl-pill studio-btn px-2 py-0.5 rounded bg-sky-500 text-white font-semibold">1</button>
+          <button data-lvl="1" class="lvl-pill studio-btn px-2 py-0.5 rounded bg-white/10 text-slate-300 hover:bg-white/20">2</button>
+          <button data-lvl="2" class="lvl-pill studio-btn px-2 py-0.5 rounded bg-white/10 text-slate-300 hover:bg-white/20">3</button>
+          <button data-lvl="3" class="lvl-pill studio-btn px-2 py-0.5 rounded bg-white/10 text-slate-300 hover:bg-white/20">4</button>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="hud-substat" class="text-slate-400">Đứt: 0 sợi</span>
+          <button id="btn-retry-lvl" class="studio-btn px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-slate-200 font-medium">Chơi lại</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Level Clear Modal -->
+  <div id="win-modal" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-slate-950/55 backdrop-blur-sm px-4">
+    <div class="glass-panel rounded-3xl p-6 max-w-sm w-full text-center border-emerald-400/35">
+      <div id="win-stars" class="text-3xl tracking-widest mb-2">⭐⭐⭐</div>
+      <h3 id="win-title" class="text-lg font-extrabold text-white mb-1">Hoàn thành màn!</h3>
+      <p id="win-desc" class="text-xs text-slate-300 mb-4">Kỹ thuật kéo giãn hoàn hảo, không đứt sợi nào.</p>
+      <div class="bg-slate-900/70 rounded-xl p-3 mb-4 flex justify-around text-xs">
+        <div>
+          <div class="text-slate-400 text-[10px] uppercase">Điểm màn</div>
+          <div id="win-points" class="text-base font-bold text-emerald-300 tabular-nums">+500</div>
+        </div>
+        <div class="w-px bg-white/10"></div>
+        <div>
+          <div class="text-slate-400 text-[10px] uppercase">Tổng điểm</div>
+          <div id="win-total" class="text-base font-bold text-sky-300 tabular-nums">500</div>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button id="btn-win-retry" class="studio-btn flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-white">Chơi lại</button>
+        <button id="btn-win-next" class="studio-btn flex-1 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-emerald-500 text-xs font-bold text-white shadow-lg">Màn tiếp theo →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom-Center: Live Elastic Tension Meter -->
+  <div id="tension-hud" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-20 pointer-events-none opacity-0 transition-opacity duration-150">
+    <div id="tension-box" class="glass-panel rounded-2xl px-4 py-2 w-60">
+      <div class="flex items-center justify-between text-[11px] mb-1">
+        <span id="tension-label" class="font-semibold text-sky-300">Kéo giãn đàn hồi</span>
+        <span id="tension-pct" class="font-bold tabular-nums text-white">0%</span>
+      </div>
+      <div class="relative w-full h-2 bg-slate-800/90 rounded-full overflow-hidden">
+        <div class="absolute top-0 bottom-0 left-[74%] w-0.5 bg-amber-300/70 z-10"></div>
+        <div id="tension-bar" class="h-full bg-sky-400 rounded-full transition-all duration-75" style="width: 0%"></div>
+      </div>
+      <div class="flex justify-between text-[9px] text-slate-400 mt-1">
+        <span>Đàn hồi (không rách)</span>
+        <span class="text-amber-300">Sắp đứt</span>
+        <span class="text-rose-400">Rách!</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top-Right: Control Panel -->
+  <div class="fixed top-4 right-4 z-20 flex flex-col items-end gap-2">
+    <div class="flex items-center gap-2">
+      <button id="btn-orbit-toggle" title="Chuyển chế độ Kéo / Xoay 360°"
+        class="glass-panel studio-btn rounded-xl px-3 py-2 text-xs font-medium text-slate-200 flex items-center gap-1.5 hover:bg-white/15">
+        <svg class="w-4 h-4 text-sky-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9"/>
+        </svg>
+        <span id="orbit-toggle-text" class="hidden sm:inline">Kéo &amp; Xé</span>
+      </button>
+
+      <button id="btn-sound" title="Bật / Tắt âm thanh"
+        class="glass-panel studio-btn rounded-xl p-2 text-slate-200 hover:bg-white/15">
+        <svg id="icon-sound-on" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"/>
+        </svg>
+        <svg id="icon-sound-off" class="w-4 h-4 hidden text-rose-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"/>
+        </svg>
+      </button>
+
+      <button id="btn-settings-toggle"
+        class="glass-panel studio-btn rounded-xl px-3 py-2 text-xs font-medium text-slate-200 flex items-center gap-1.5 hover:bg-white/15">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
+        </svg>
+        <span class="hidden sm:inline">Tùy chỉnh</span>
+      </button>
+    </div>
+
+    <div id="settings-panel" class="glass-panel rounded-2xl p-4 w-64 flex flex-col gap-3.5 text-xs">
+      <!-- Loại tất -->
+      <div>
+        <label class="block text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Loại tất</label>
+        <div class="grid grid-cols-2 gap-1.5 bg-slate-900/65 p-1 rounded-xl">
+          <button id="type-fishnet" class="studio-btn py-1.5 rounded-lg font-medium bg-sky-500 text-white shadow">Tất lưới</button>
+          <button id="type-sheer" class="studio-btn py-1.5 rounded-lg font-medium text-slate-300 hover:text-white">Không lưới</button>
+        </div>
+      </div>
+
+      <!-- Mắt lưới -->
+      <div id="fishnet-size-group">
+        <label class="block text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Kích thước mắt lưới</label>
+        <div class="grid grid-cols-3 gap-1.5 bg-slate-900/65 p-1 rounded-xl">
+          <button data-size="small" class="size-btn studio-btn py-1.5 rounded-lg font-medium text-slate-300 hover:text-white">Nhỏ</button>
+          <button data-size="medium" class="size-btn studio-btn py-1.5 rounded-lg font-medium bg-white/90 text-slate-900">Vừa</button>
+          <button data-size="large" class="size-btn studio-btn py-1.5 rounded-lg font-medium text-slate-300 hover:text-white">Lớn</button>
+        </div>
+      </div>
+
+      <!-- Độ dày Denier -->
+      <div id="sheer-denier-group" class="hidden">
+        <label class="block text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Độ mỏng (Denier)</label>
+        <div class="grid grid-cols-3 gap-1.5 bg-slate-900/65 p-1 rounded-xl">
+          <button data-denier="15d" class="denier-btn studio-btn py-1.5 rounded-lg font-medium text-slate-300 hover:text-white">15D Mỏng</button>
+          <button data-denier="40d" class="denier-btn studio-btn py-1.5 rounded-lg font-medium bg-white/90 text-slate-900">40D Vừa</button>
+          <button data-denier="80d" class="denier-btn studio-btn py-1.5 rounded-lg font-medium text-slate-300 hover:text-white">80D Dày</button>
+        </div>
+      </div>
+
+      <!-- Độ dai / Đàn hồi sợi -->
+      <div>
+        <div class="flex justify-between items-center mb-1.5">
+          <label class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Độ dai &amp; đàn hồi</label>
+          <span id="strength-val" class="text-sky-300 font-semibold">Dai vừa</span>
+        </div>
+        <input id="slider-strength" type="range" min="1.85" max="3.15" step="0.05" value="2.45" class="w-full" />
+        <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+          <span>Dễ xé</span>
+          <span>Rất dai (kéo xa)</span>
+        </div>
+      </div>
+
+      <!-- Lực kéo ra ngoài -->
+      <div>
+        <div class="flex justify-between items-center mb-1.5">
+          <label class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Lực giật xé</label>
+          <span id="pull-val" class="text-sky-300 font-semibold">Tự nhiên</span>
+        </div>
+        <input id="slider-pull" type="range" min="0.55" max="1.35" step="0.05" value="0.90" class="w-full" />
+        <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+          <span>Nhẹ nhàng</span>
+          <span>Mạnh tay</span>
+        </div>
+      </div>
+
+      <!-- Tông da -->
+      <div>
+        <label class="block text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Tông da</label>
+        <div class="grid grid-cols-3 gap-1.5 bg-slate-900/65 p-1 rounded-xl">
+          <button data-skin="fair" class="skin-btn studio-btn py-1.5 rounded-lg font-medium bg-white/90 text-slate-900">Sáng hồng</button>
+          <button data-skin="natural" class="skin-btn studio-btn py-1.5 rounded-lg font-medium text-slate-300 hover:text-white">Tự nhiên</button>
+          <button data-skin="warm" class="skin-btn studio-btn py-1.5 rounded-lg font-medium text-slate-300 hover:text-white">Mật ong</button>
+        </div>
+      </div>
+
+      <!-- Thống kê -->
+      <div class="pt-2.5 border-t border-white/10">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Sợi đã đứt</span>
+          <span id="stat-broken-count" class="text-xs font-bold text-rose-300 tabular-nums">0 sợi</span>
+        </div>
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Độ rách tổng</span>
+          <span id="stat-tear-pct" class="text-xs font-bold text-sky-300 tabular-nums">0.0%</span>
+        </div>
+        <div class="w-full h-1.5 bg-slate-800/80 rounded-full overflow-hidden">
+          <div id="bar-tear-pct" class="h-full bg-gradient-to-r from-sky-400 to-rose-400 rounded-full transition-all duration-150" style="width: 0%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom-Left: Camera Presets & Actions -->
+  <div class="fixed bottom-4 left-4 z-20 flex flex-col sm:flex-row sm:items-end gap-2.5">
+    <div class="flex sm:flex-col gap-1.5">
+      <button id="btn-view-full" class="studio-btn active-view glass-panel rounded-lg px-3.5 py-1.5 text-xs tracking-wider uppercase">TOÀN THÂN</button>
+      <button id="btn-view-face" class="studio-btn glass-panel rounded-lg px-3.5 py-1.5 text-xs tracking-wider uppercase text-slate-200 hover:bg-white/15">MẶT &amp; ÁO</button>
+      <button id="btn-view-1" class="studio-btn glass-panel rounded-lg px-3.5 py-1.5 text-xs tracking-wider uppercase text-slate-200 hover:bg-white/15">ĐÙI</button>
+      <button id="btn-view-2" class="studio-btn glass-panel rounded-lg px-3.5 py-1.5 text-xs tracking-wider uppercase text-slate-200 hover:bg-white/15">BẮP CHÂN</button>
+      <button id="btn-view-side" class="studio-btn glass-panel rounded-lg px-3.5 py-1.5 text-xs tracking-wider uppercase text-slate-200 hover:bg-white/15">NGHIÊNG</button>
+    </div>
+
+    <div class="glass-panel rounded-xl px-3.5 py-2.5 flex flex-col gap-1.5 text-[11px] text-slate-300">
+      <div class="flex flex-wrap items-center gap-2">
+        <button id="btn-pin-hand" class="studio-btn flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-md text-white font-medium">
+          <kbd class="px-1.5 py-0.5 bg-slate-900/85 rounded text-[10px] text-amber-300 font-bold">1</kbd>
+          <span>Ghim tay (Xé 2 tay)</span>
+        </button>
+        <button id="btn-repair" class="studio-btn flex items-center gap-1.5 bg-white/10 hover:bg-emerald-500/30 px-2.5 py-1 rounded-md text-white font-medium">
+          <kbd class="px-1.5 py-0.5 bg-slate-900/85 rounded text-[10px] text-emerald-300 font-bold">2</kbd>
+          <span>Phục hồi đồ</span>
+        </button>
+      </div>
+      <div class="text-[10px] text-slate-400 hidden sm:block">
+        Kéo nhẹ: Giãn đàn hồi &nbsp;•&nbsp; Kéo mạnh / 2 tay: Xé tất &amp; váy &nbsp;•&nbsp; Chuột phải: Xoay 360°
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom-Right: Stocking Colors -->
+  <div class="fixed bottom-4 right-4 z-20 flex items-center gap-2">
+    <button id="color-black" class="studio-btn rounded-lg px-3.5 py-2 text-xs font-semibold bg-neutral-950 text-white border-2 border-sky-400 shadow-lg">
+      Đen
+    </button>
+    <button id="color-burgundy" class="studio-btn rounded-lg px-3.5 py-2 text-xs font-semibold bg-[#4c0f22] text-rose-100 border-2 border-transparent shadow-lg hover:bg-[#66162e]">
+      Đỏ rượu
+    </button>
+    <button id="color-white" class="studio-btn rounded-lg px-3.5 py-2 text-xs font-semibold bg-slate-100 text-slate-900 border-2 border-transparent shadow-lg hover:bg-white">
+      Trắng
+    </button>
+  </div>
+
+  <!-- Floating Toast -->
+  <div id="toast" class="toast-msg fixed top-20 left-1/2 -translate-x-1/2 z-30 glass-panel rounded-full px-4 py-1.5 text-xs font-medium text-sky-200 opacity-0 pointer-events-none">
+    Thông báo
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
