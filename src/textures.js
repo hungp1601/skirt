@@ -559,16 +559,6 @@ export function createSchoolShirtTexture() {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
-  // Sợi dệt cotton mịn
-  for (let y = 0; y < h; y += 3) {
-    ctx.fillStyle = (y % 6 === 0) ? 'rgba(175,188,208,0.06)' : 'rgba(255,255,255,0.12)';
-    ctx.fillRect(0, y, w, 1);
-  }
-  for (let x = 0; x < w; x += 4) {
-    ctx.fillStyle = (x % 8 === 0) ? 'rgba(155,170,196,0.05)' : 'rgba(255,255,255,0.07)';
-    ctx.fillRect(x, 0, 1, h);
-  }
-
   const frontX = w * 0.25;
 
   // Đường chiết ly eo tinh tế (tailored princess darts) tạo phom ôm eo thon tự nhiên
@@ -691,26 +681,13 @@ export function createCottonWeaveMaps() {
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      // Crisp 1/1 plain-weave cotton warp & weft threads (4px period)
-      const u = (x % 4) / 4;
-      const v = (y % 4) / 4;
-      const cell = ((Math.floor(x / 4) + Math.floor(y / 4)) & 1);
-      const slub = (noise.fbm(x / size, y / size, 6, 6, 3) - 0.5) * 0.18;
-
-      let nx = 0, ny = 0, height = 0.5;
-      if (cell === 0) {
-        // Horizontal weft thread over warp
-        ny = Math.cos(v * Math.PI * 2) * 0.42;
-        nx = Math.sin(u * Math.PI) * 0.14;
-        height = 0.65 + 0.25 * Math.sin(v * Math.PI);
-      } else {
-        // Vertical warp thread over weft
-        nx = Math.cos(u * Math.PI * 2) * 0.42;
-        ny = Math.sin(v * Math.PI) * 0.14;
-        height = 0.65 + 0.25 * Math.sin(u * Math.PI);
-      }
-      nx += slub * 0.35;
-      ny -= slub * 0.35;
+      // Sợi dệt mượt, biên độ thấp. Ô caro cứng sẽ vỡ thành ô vuông mờ khi zoom sát.
+      const warp = Math.sin((x / size) * Math.PI * 2 * 36);
+      const weft = Math.sin((y / size) * Math.PI * 2 * 36);
+      const slub = (noise.fbm(x / size, y / size, 6, 6, 3) - 0.5) * 0.12;
+      const nx = warp * 0.14 + slub * 0.2;
+      const ny = weft * 0.14 - slub * 0.2;
+      const height = 0.55 + warp * 0.04 + weft * 0.04;
       const nz = Math.sqrt(Math.max(0.15, 1 - nx * nx - ny * ny));
       const idx = (y * size + x) * 4;
       nImg.data[idx]     = Math.floor((nx * 0.5 + 0.5) * 255);
@@ -729,12 +706,12 @@ export function createCottonWeaveMaps() {
 
   const normalMap = new THREE.CanvasTexture(nC);
   normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
-  normalMap.repeat.set(16, 16);
-  normalMap.anisotropy = 8;
+  normalMap.repeat.set(42, 42);
+  normalMap.anisotropy = 16;
 
   const roughnessMap = new THREE.CanvasTexture(rC);
   roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
-  roughnessMap.repeat.set(16, 16);
+  roughnessMap.repeat.set(42, 42);
   roughnessMap.anisotropy = 8;
 
   return { normalMap, roughnessMap };

@@ -504,7 +504,7 @@ function createArmLimitFn(arms) {
 // Quét bao ngoài 360° trên tập đỉnh đã tách sạch 2 cánh tay (torsoVerts)
 // Hỗ trợ bustBridgeTheta để làm phẳng/bắc cầu khe ngực tự nhiên giúp áo sơ mi không bị hở/lõm hay xuyên áo lót
 function scanCleanBodyEnvelope(torsoVerts, yTop, yBot, NS, NA, maxRadius = 0.30, options = {}) {
-  const { bustBridgeTheta = null, bustBand = null } = options;
+  const { bustBridgeTheta = null, bustBand = null, coreCenter = null, shedHairTheta = null } = options;
   const span = Math.max(0.05, yTop - yBot);
   const buckets = Array.from({ length: NS }, () => []);
 
@@ -519,18 +519,35 @@ function scanCleanBodyEnvelope(torsoVerts, yTop, yBot, NS, NA, maxRadius = 0.30,
   let czArr = new Float32Array(NS);
   for (let s = 0; s < NS; s++) {
     const pts = buckets[s];
-    let mnX = 1e9, mxX = -1e9, mnZ = 1e9, mxZ = -1e9;
-    for (let i = 0; i < pts.length; i += 3) {
-      if (pts[i] < mnX) mnX = pts[i]; if (pts[i] > mxX) mxX = pts[i];
-      if (pts[i + 2] < mnZ) mnZ = pts[i + 2]; if (pts[i + 2] > mxZ) mxZ = pts[i + 2];
+    let usedCore = false;
+    // Tâm thân lấy từ các điểm gần lõi, không kéo theo mái tóc phía sau
+    if (coreCenter && pts.length) {
+      let sx = 0, sz = 0, n = 0;
+      for (let i = 0; i < pts.length; i += 3) {
+        if (Math.hypot(pts[i] - coreCenter.x, pts[i + 2] - coreCenter.z) > 0.16) continue;
+        sx += pts[i]; sz += pts[i + 2]; n++;
+      }
+      if (n >= 12) {
+        cxArr[s] = sx / n;
+        czArr[s] = sz / n;
+        usedCore = true;
+      }
     }
-    cxArr[s] = pts.length ? (mnX + mxX) * 0.5 : (s > 0 ? cxArr[s - 1] : 0);
-    czArr[s] = pts.length ? (mnZ + mxZ) * 0.5 : (s > 0 ? czArr[s - 1] : 0);
+    if (!usedCore) {
+      let mnX = 1e9, mxX = -1e9, mnZ = 1e9, mxZ = -1e9;
+      for (let i = 0; i < pts.length; i += 3) {
+        if (pts[i] < mnX) mnX = pts[i]; if (pts[i] > mxX) mxX = pts[i];
+        if (pts[i + 2] < mnZ) mnZ = pts[i + 2]; if (pts[i + 2] > mxZ) mxZ = pts[i + 2];
+      }
+      cxArr[s] = pts.length ? (mnX + mxX) * 0.5 : (s > 0 ? cxArr[s - 1] : 0);
+      czArr[s] = pts.length ? (mnZ + mxZ) * 0.5 : (s > 0 ? czArr[s - 1] : 0);
+    }
   }
   cxArr = smooth1D(cxArr, 2);
   czArr = smooth1D(czArr, 2);
 
   const radArr = new Float32Array(NS * NA);
+  const hairBins = shedHairTheta != null ? new Array(NS * NA) : null;
   for (let s = 0; s < NS; s++) {
     const pts = buckets[s];
     const cx = cxArr[s], cz = czArr[s];
@@ -544,6 +561,10 @@ function scanCleanBodyEnvelope(torsoVerts, yTop, yBot, NS, NA, maxRadius = 0.30,
       const a0 = Math.floor(af) % NA, a1 = (a0 + 1) % NA;
       if (r > radArr[s * NA + a0]) radArr[s * NA + a0] = r;
       if (r > radArr[s * NA + a1]) radArr[s * NA + a1] = r;
+      if (hairBins && Math.cos(ang - shedHairTheta) < -0.45) {
+        const key = s * NA + a0;
+        (hairBins[key] || (hairBins[key] = [])).push(r);
+      }
     }
   }
   finalizePolarEnvelope(radArr, NS, NA, 0.055, 2);
@@ -573,6 +594,55 @@ function scanCleanBodyEnvelope(torsoVerts, yTop, yBot, NS, NA, maxRadius = 0.30,
         const blend = smoothstep(0.45, 0.85, cosDiff);
         radArr[s * NA + a] = row[a] * (1 - blend * 0.88) + bestBridge * (blend * 0.88);
       }
+    }
+  }
+
+  // Tóc dài là lớp vỏ ngoài sau lưng. Lấy bán kính da trước khe hở đó để áo ôm lưng, không ôm tóc.
+  if (hairBins && shedHairTheta != null) {
+    for (let s = 0; s < NS; s++) {
+      for (let a = 0; a < NA; a++) {
+        const ang = (a / NA) * Math.PI * 2;
+        if (Math.cos(ang - shedHairTheta) > -0.5) continue;
+        const list = hairBins[s * NA + a];
+        if (!list || list.length < 8) continue;
+        list.sort((p, q) => p - q);
+        let bestGap = 0, cut = -1;
+        const i0 = Math.floor(list.length * 0.2);
+        const i1 = Math.max(i0 + 1, Math.floor(list.length * 0.9));
+        for (let i = i0; i < i1 && i < list.length - 1; i++) {
+          const gap = list[i + 1] - list[i];
+          if (gap > bestGap) { bestGap = gap; cut = i; }
+        }
+        const p40 = list[Math.floor(list.length * 0.4)];
+        const p90 = list[Math.min(list.length - 1, Math.floor(list.length * 0.9))];
+        let bodyR = null;
+        if (bestGap >= 0.006 && cut >= 0) bodyR = list[cut];
+        else if (p90 - p40 >= 0.012) bodyR = p40;
+        if (bodyR != null && bodyR > 0.04) radArr[s * NA + a] = bodyR;
+      }
+    }
+    for (let pass = 0; pass < 2; pass++) {
+      const out = new Float32Array(radArr);
+      for (let s = 0; s < NS; s++) {
+        for (let a = 0; a < NA; a++) {
+          const ang = (a / NA) * Math.PI * 2;
+          if (Math.cos(ang - shedHairTheta) > -0.45) continue;
+          let acc = 0, w = 0;
+          for (let ds = -1; ds <= 1; ds++) {
+            const sj = clamp(s + ds, 0, NS - 1);
+            for (let da = -1; da <= 1; da++) {
+              const aj = (a + da + NA) % NA;
+              const nang = (aj / NA) * Math.PI * 2;
+              if (Math.cos(nang - shedHairTheta) > -0.35) continue;
+              const wt = (ds === 0 && da === 0) ? 4 : 2;
+              acc += radArr[sj * NA + aj] * wt;
+              w += wt;
+            }
+          }
+          if (w > 0) out[s * NA + a] = acc / w;
+        }
+      }
+      radArr.set(out);
     }
   }
 
@@ -1536,7 +1606,8 @@ export function loadGLBCharacter(scene, url, { skinTex, skinSSSUniform, onProgre
             0.25,
             {
               bustBridgeTheta: frontTheta,
-              bustBand: [yOffset + modelHeight * 0.48, yOffset + modelHeight * 0.67]
+              bustBand: [yOffset + modelHeight * 0.48, yOffset + modelHeight * 0.67],
+              shedHairTheta: frontTheta
             }
           );
           shirtProfile.frontTheta = frontTheta;

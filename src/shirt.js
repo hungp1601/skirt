@@ -46,7 +46,7 @@ export class TearableSchoolShirt {
     this.shirtMaterial = new THREE.MeshPhysicalMaterial({
       map: createSchoolShirtTexture(),
       normalMap: cottonMaps.normalMap,
-      normalScale: new THREE.Vector2(0.45, 0.45),
+      normalScale: new THREE.Vector2(0.16, 0.16),
       roughnessMap: cottonMaps.roughnessMap,
       roughness: 0.92,
       metalness: 0.0,
@@ -413,8 +413,8 @@ export class TearableSchoolShirt {
 
   // Bao thân lấy bán kính lớn nhất nên eo sau bị phồng. Chỉ kéo nửa dưới lưng, vai giữ ngoài da.
   fitBackRadius(vDown, theta, r) {
-    const tuck = smoothstep(0.55, 1, vDown) * 0.014;
-    return r - this.backWeight(theta) * tuck;
+    const tuck = smoothstep(0.55, 1, vDown) * 0.003;
+    return Math.max(0.06, r - this.backWeight(theta) * tuck);
   }
 
   initParticlesAndSprings() {
@@ -924,7 +924,7 @@ export class TearableSchoolShirt {
         const theta = Math.atan2(dz, dx);
         const surfExact = this.sampleTorsoRadius(vFrac, theta);
         const r = Math.hypot(dx, dz) || 0.0001;
-        const minR = surfExact.r + Math.max(0.0042, this.getBlouseEase(vFrac) * 0.85);
+        const minR = surfExact.r + Math.max(0.0032, this.getBlouseEase(vFrac, theta) * 0.8);
         if (r < minR) {
           const sc = minR / r;
           this.pos[i3] = surfExact.cx + dx * sc;
