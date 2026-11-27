@@ -758,6 +758,9 @@ async function initCharacterScene() {
     const { profile, legSkinMat, laceMat: glbLaceMat } = await loadGLBCharacter(scene, './assets/character.glb', {
       skinTex,
       skinSSSUniform,
+      onStatus: (msg) => {
+        if (titleEl) titleEl.textContent = msg;
+      },
       onProgress: (ratio) => {
         const pct = Math.min(99, Math.round(ratio * 100));
         if (barEl) barEl.style.width = `${pct}%`;

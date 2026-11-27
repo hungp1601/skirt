@@ -1390,24 +1390,185 @@ function scanFullBodyProfile(allVerts, totalHeight) {
   };
 }
 
-export function loadGLBCharacter(scene, url, { skinTex, skinSSSUniform, onProgress } = {}) {
-  return new Promise((resolve, reject) => {
-    const loader = new GLTFLoader();
-    loader.load(
-      url,
-      (gltf) => {
-        const model = gltf.scene;
-        const box = new THREE.Box3().setFromObject(model);
-        const size = new THREE.Vector3();
-        const center = new THREE.Vector3();
-        box.getSize(size);
-        box.getCenter(center);
+const MODEL_CACHE_DB = 'fishnet-model-cache';
+const MODEL_CACHE_STORE = 'models';
 
-        const isUpperBodyCut = (size.y / Math.max(size.x, 0.01)) < 2.45;
-        const modelHeight = isUpperBodyCut ? 1.48 : 2.85;
-        const yOffset = isUpperBodyCut ? 1.18 : 0.0;
-        const totalHeight = yOffset + modelHeight;
-        const scale = modelHeight / (size.y || 1);
+function openModelCacheDB() {
+  return new Promise((resolve) => {
+    if (typeof indexedDB === 'undefined') return resolve(null);
+    try {
+      const req = indexedDB.open(MODEL_CACHE_DB, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(MODEL_CACHE_STORE)) {
+          db.createObjectStore(MODEL_CACHE_STORE, { keyPath: 'url' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch (_) {
+      resolve(null);
+    }
+  });
+}
+
+async function readCachedModel(cacheKey) {
+  const db = await openModelCacheDB();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(MODEL_CACHE_STORE, 'readonly');
+      const req = tx.objectStore(MODEL_CACHE_STORE).get(cacheKey);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+      tx.oncomplete = () => db.close();
+      tx.onerror = () => db.close();
+    } catch (_) {
+      db.close();
+      resolve(null);
+    }
+  });
+}
+
+async function writeCachedModel(record) {
+  const db = await openModelCacheDB();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(MODEL_CACHE_STORE, 'readwrite');
+      tx.objectStore(MODEL_CACHE_STORE).put(record);
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); resolve(); };
+    } catch (_) {
+      db.close();
+      resolve();
+    }
+  });
+}
+
+async function deleteCachedModel(cacheKey) {
+  const db = await openModelCacheDB();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(MODEL_CACHE_STORE, 'readwrite');
+      tx.objectStore(MODEL_CACHE_STORE).delete(cacheKey);
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); resolve(); };
+    } catch (_) {
+      db.close();
+      resolve();
+    }
+  });
+}
+
+function getVersionFromHeaders(headers) {
+  const etag = headers.get('etag');
+  const lastMod = headers.get('last-modified');
+  const len = headers.get('content-length');
+  if (etag) return `etag:${etag}`;
+  if (lastMod || len) return `meta:${lastMod || ''}|${len || ''}`;
+  return '';
+}
+
+async function fetchRemoteVersion(url, timeoutMs = 2000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { method: 'HEAD', cache: 'no-cache', signal: ctrl.signal });
+    if (!res.ok) return null;
+    return getVersionFromHeaders(res.headers);
+  } catch (_) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchModelBufferWithProgress(url, onProgress) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} loading ${url}`);
+  const version = getVersionFromHeaders(res.headers);
+  const total = Number(res.headers.get('content-length')) || 0;
+
+  if (!res.body || !res.body.getReader) {
+    const buffer = await res.arrayBuffer();
+    if (onProgress) onProgress(1);
+    return { buffer, version };
+  }
+
+  const reader = res.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.byteLength;
+    if (onProgress && total > 0) onProgress(Math.min(0.99, loaded / total));
+  }
+
+  const merged = new Uint8Array(loaded);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { buffer: merged.buffer, version };
+}
+
+async function loadGLBArrayBuffer(url, { onProgress, onStatus } = {}) {
+  const cacheKey = new URL(url, window.location.href).pathname;
+  const cached = await readCachedModel(cacheKey);
+  if (cached && cached.buffer instanceof ArrayBuffer && cached.buffer.byteLength > 0) {
+    const remoteVersion = await fetchRemoteVersion(url);
+    const isFresh = !remoteVersion || !cached.version || remoteVersion === cached.version;
+    if (isFresh) {
+      if (onStatus) onStatus('Đang mở model từ bộ nhớ đệm...');
+      if (onProgress) onProgress(0.99);
+      return { buffer: cached.buffer, fromCache: true, cacheKey };
+    }
+  }
+
+  if (onStatus) onStatus('Đang tải model nhân vật 3D...');
+  const { buffer, version } = await fetchModelBufferWithProgress(url, onProgress);
+  await writeCachedModel({ url: cacheKey, version, buffer, savedAt: Date.now() });
+  return { buffer, fromCache: false, cacheKey };
+}
+
+export async function loadGLBCharacter(scene, url, { skinTex, skinSSSUniform, onProgress, onStatus } = {}) {
+  const loader = new GLTFLoader();
+  const basePath = url.slice(0, url.lastIndexOf('/') + 1);
+
+  const parseGLTF = (buffer) => new Promise((resolve, reject) => {
+    loader.parse(buffer, basePath, resolve, reject);
+  });
+
+  let gltf;
+  const { buffer, fromCache, cacheKey } = await loadGLBArrayBuffer(url, { onProgress, onStatus });
+  try {
+    gltf = await parseGLTF(buffer);
+  } catch (parseErr) {
+    if (!fromCache) throw parseErr;
+    await deleteCachedModel(cacheKey);
+    if (onStatus) onStatus('Đang tải lại model nhân vật 3D...');
+    const fresh = await fetchModelBufferWithProgress(url, onProgress);
+    await writeCachedModel({ url: cacheKey, version: fresh.version, buffer: fresh.buffer, savedAt: Date.now() });
+    gltf = await parseGLTF(fresh.buffer);
+  }
+
+  const model = gltf.scene;
+  const box = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  const isUpperBodyCut = (size.y / Math.max(size.x, 0.01)) < 2.45;
+  const modelHeight = isUpperBodyCut ? 1.48 : 2.85;
+  const yOffset = isUpperBodyCut ? 1.18 : 0.0;
+  const totalHeight = yOffset + modelHeight;
+  const scale = modelHeight / (size.y || 1);
         model.scale.setScalar(scale);
 
         model.updateMatrixWorld(true);
@@ -1626,12 +1787,5 @@ export function loadGLBCharacter(scene, url, { skinTex, skinSSSUniform, onProgre
           profile = scanFullBodyProfile(allVerts, totalHeight);
         }
 
-        resolve({ model, profile, legSkinMat, laceMat, totalHeight });
-      },
-      (evt) => {
-        if (onProgress && evt.total > 0) onProgress(evt.loaded / evt.total);
-      },
-      (err) => reject(err)
-    );
-  });
+        return { model, profile, legSkinMat, laceMat, totalHeight };
 }
