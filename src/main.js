@@ -26,6 +26,7 @@ import { TearableSchoolShirt } from './shirt.js';
 import { createHandSystem, updateHandPinch } from './hand.js';
 import { createStockingSystem } from './stocking.js';
 import { createMiniGameController } from './minigame.js';
+import { SkinElasticitySystem } from './skinPhysics.js';
 
 // =========================================================================
 // 1. SCENE, CAMERA, STUDIO SOFTBOX LIGHTING & FLOOR
@@ -139,6 +140,7 @@ scene.add(floor);
 // 2. INSTANTIATE HANDS & ASYNC GLB CHARACTER + STOCKINGS + OPTIONAL SKIRT
 // =========================================================================
 const fiberDust = new FiberDustSystem(scene);
+const skinPhysics = new SkinElasticitySystem();
 const skinTex = createSkinTextures();
 const skinSSSUniform = { value: SKIN_TONES.fair.sss.clone() };
 const { handSkinMat, mainHand, pinnedHand } = createHandSystem(scene, { skinTex, skinSSSUniform });
@@ -162,6 +164,16 @@ const hoverNormal = new THREE.Vector3(0, 0, 1);
 
 let mainGrab = null;
 let pinnedGrab = null;
+let skinTouchActive = false;
+const lastTouchPt = new THREE.Vector3();
+
+function getWorldNormalFromHit(hit) {
+  const n = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0, 0, 1);
+  n.transformDirection(hit.object.matrixWorld).normalize();
+  const toCam = camera.position.clone().sub(hit.point);
+  if (n.dot(toCam) < 0) n.negate();
+  return n;
+}
 
 function getHullMeshes() {
   if (!isReady) return [];
@@ -243,6 +255,27 @@ function onPointerDown(e) {
 
   updatePointer(e.clientX, e.clientY);
   raycaster.setFromCamera(pointer, camera);
+
+  // Chế độ Chạm da đàn hồi: ấn/vuốt trực tiếp lên bề mặt cơ thể (xuyên qua vải)
+  if (appState.touchMode) {
+    const skinHits = raycaster.intersectObjects(skinPhysics.pickMeshes, false);
+    if (skinHits.length === 0) {
+      mainHand.visible = false;
+      return;
+    }
+    const hit = skinHits[0];
+    const wNorm = getWorldNormalFromHit(hit);
+    e.stopImmediatePropagation();
+    controls.enabled = false;
+    skinPhysics.beginTouch(hit.point, wNorm);
+    skinTouchActive = true;
+    lastTouchPt.copy(hit.point);
+    sound.playSkinTap(0.75);
+    container.classList.add('grabbing');
+    orientHandAt(mainHand, hit.point, wNorm);
+    return;
+  }
+
   const hits = raycaster.intersectObjects(getHullMeshes(), false);
   // Bấm ra ngoài nền / mặt / tay -> cho OrbitControls xoay 360° ngay lập tức
   if (hits.length === 0) {
@@ -291,6 +324,22 @@ function onPointerDown(e) {
 function onPointerMove(e) {
   if (!isReady) return;
   updatePointer(e.clientX, e.clientY);
+
+  if (skinTouchActive) {
+    raycaster.setFromCamera(pointer, camera);
+    const skinHits = raycaster.intersectObjects(skinPhysics.pickMeshes, false);
+    if (skinHits.length > 0) {
+      const hit = skinHits[0];
+      const wNorm = getWorldNormalFromHit(hit);
+      const dragDelta = hit.point.clone().sub(lastTouchPt);
+      const prevSlot = skinPhysics.activeSlot;
+      const curSlot = skinPhysics.moveTouch(hit.point, wNorm, dragDelta);
+      if (curSlot && curSlot !== prevSlot) sound.playSkinTap(0.45);
+      lastTouchPt.copy(hit.point);
+      orientHandAt(mainHand, hit.point, wNorm);
+    }
+    return;
+  }
 
   if (mainGrab) {
     raycaster.setFromCamera(pointer, camera);
@@ -359,6 +408,20 @@ function onPointerMove(e) {
     return;
   }
 
+  if (appState.touchMode && !appState.orbitMode && e.buttons === 0) {
+    raycaster.setFromCamera(pointer, camera);
+    const skinHits = raycaster.intersectObjects(skinPhysics.pickMeshes, false);
+    if (skinHits.length > 0) {
+      const hit = skinHits[0];
+      const wNorm = getWorldNormalFromHit(hit);
+      hoverNormal.copy(wNorm);
+      orientHandAt(mainHand, hit.point, wNorm);
+    } else {
+      mainHand.visible = false;
+    }
+    return;
+  }
+
   if (!appState.orbitMode && e.buttons === 0) {
     raycaster.setFromCamera(pointer, camera);
     const hits = raycaster.intersectObjects(getHullMeshes(), false);
@@ -377,6 +440,12 @@ function onPointerMove(e) {
 
 function onPointerUp() {
   controls.enabled = true;
+  if (skinTouchActive) {
+    skinPhysics.endTouch();
+    skinTouchActive = false;
+    container.classList.remove('grabbing');
+    return;
+  }
   if (!mainGrab) return;
   if (mainGrab.peakStretchSeen > 0.32 && !mainGrab.brokeAny) {
     sound.playSnapBack(clamp(mainGrab.peakStretchSeen, 0.35, 1.0));
@@ -426,6 +495,10 @@ function showToast(msg) {
 
 function clearGrabs() {
   controls.enabled = true;
+  if (skinTouchActive) {
+    skinPhysics.endTouch();
+    skinTouchActive = false;
+  }
   mainGrab = null;
   pinnedGrab = null;
   mainHand.visible = false;
@@ -513,6 +586,7 @@ window.addEventListener('keydown', (e) => {
     if (appState.gameMode === 'minigame') miniGame.startLevel(appState.levelIndex);
     else repairAllTears();
   }
+  if (e.key === '3' || k === 't') toggleTouchMode();
   if (e.key === 'ArrowLeft' || k === 'a') orbitKeys.left = true;
   if (e.key === 'ArrowRight' || k === 'd') orbitKeys.right = true;
 });
@@ -522,8 +596,50 @@ window.addEventListener('keyup', (e) => {
   if (e.key === 'ArrowRight' || k === 'd') orbitKeys.right = false;
 });
 
+const btnTouchToggle = document.getElementById('btn-touch-toggle');
+function syncTouchButtonUI() {
+  if (!btnTouchToggle) return;
+  btnTouchToggle.classList.toggle('bg-rose-500/30', appState.touchMode);
+  btnTouchToggle.classList.toggle('border-rose-400/60', appState.touchMode);
+  btnTouchToggle.classList.toggle('border-transparent', !appState.touchMode);
+  btnTouchToggle.classList.toggle('text-white', appState.touchMode);
+}
+
+function toggleTouchMode(forceState) {
+  const next = typeof forceState === 'boolean' ? forceState : !appState.touchMode;
+  appState.touchMode = next;
+  if (appState.touchMode) {
+    clearGrabs();
+    appState.orbitMode = false;
+    container.classList.remove('orbit-mode');
+    document.getElementById('orbit-toggle-text').textContent = 'Kéo & Xé';
+    showToast('Chế độ Chạm da — Ấn hoặc vuốt lên người để da đàn hồi!');
+  } else {
+    if (skinTouchActive) {
+      skinPhysics.endTouch();
+      skinTouchActive = false;
+      controls.enabled = true;
+      container.classList.remove('grabbing');
+    }
+    showToast('Chế độ Kéo & Xé đồ');
+  }
+  syncTouchButtonUI();
+}
+
+if (btnTouchToggle) {
+  btnTouchToggle.addEventListener('click', () => toggleTouchMode());
+}
+
 document.getElementById('btn-orbit-toggle').addEventListener('click', () => {
   appState.orbitMode = !appState.orbitMode;
+  if (appState.orbitMode && appState.touchMode) {
+    appState.touchMode = false;
+    if (skinTouchActive) {
+      skinPhysics.endTouch();
+      skinTouchActive = false;
+    }
+    syncTouchButtonUI();
+  }
   container.classList.toggle('orbit-mode', appState.orbitMode);
   document.getElementById('orbit-toggle-text').textContent = appState.orbitMode ? 'Xoay 360°' : 'Kéo & Xé';
   if (appState.orbitMode) mainHand.visible = false;
@@ -687,6 +803,11 @@ function animate(now = performance.now()) {
   }
 
   if (upperBody) upperBody.updateIdle(now * 0.001, dt);
+  skinPhysics.step(dt);
+  if (skinTouchActive && skinPhysics.activeSlot) {
+    const pressedPt = skinPhysics.getActiveTouchPosition(new THREE.Vector3());
+    if (pressedPt) orientHandAt(mainHand, pressedPt, skinPhysics.activeSlot.normal);
+  }
 
   if (mainGrab && peakTension > mainGrab.peakStretchSeen) {
     mainGrab.peakStretchSeen = peakTension;
@@ -695,7 +816,7 @@ function animate(now = performance.now()) {
   fiberDust.step();
 
   const tremor = peakTension > 0.72 ? (peakTension - 0.72) / 0.28 : 0;
-  updateHandPinch(mainHand, mainGrab ? 1 : 0, mainGrab ? tremor : 0);
+  updateHandPinch(mainHand, (mainGrab || skinTouchActive) ? 1 : 0, mainGrab ? tremor : (skinTouchActive ? 0.14 : 0));
   updateHandPinch(pinnedHand, pinnedGrab ? 1 : 0, pinnedGrab ? tremor * 0.7 : 0);
 
   let dragVel = 0;
@@ -755,7 +876,7 @@ async function initCharacterScene() {
 
   let laceMat = null;
   try {
-    const { profile, legSkinMat, laceMat: glbLaceMat } = await loadGLBCharacter(scene, './assets/character.glb', {
+    const { model, profile, legSkinMat, laceMat: glbLaceMat, lowerLegMeshes, seamBlendMeshes, totalHeight } = await loadGLBCharacter(scene, './assets/character.glb', {
       skinTex,
       skinSSSUniform,
       onStatus: (msg) => {
@@ -773,6 +894,12 @@ async function initCharacterScene() {
     skinMat = legSkinMat;
     laceMat = glbLaceMat || null;
     setCustomLegProfile(profile);
+    // Gắn shader đàn hồi lên GLB (không raycast trực tiếp 1.5M tam giác mà dùng proxy siêu nhẹ)
+    skinPhysics.attachObject(model, { pickable: false });
+    skinPhysics.buildProxyFromProfile(scene, profile, totalHeight);
+    for (const m of (lowerLegMeshes || [])) skinPhysics.attachObject(m, { pickable: true });
+    for (const m of (seamBlendMeshes || [])) skinPhysics.attachObject(m, { pickable: false });
+    if (laceMat) skinPhysics.patchMaterial(laceMat, { tiltNormal: false });
   } catch (err) {
     console.error('Không tải được character.glb, dùng model mặc định:', err);
     setCustomLegProfile(null);
@@ -780,6 +907,9 @@ async function initCharacterScene() {
     skinMat = body.skinMat;
     laceMat = body.laceMat;
     upperBody = createUpperBody(scene, { skinTex, skinSSSUniform });
+    if (body.legGroup) skinPhysics.attachObject(body.legGroup, { pickable: true });
+    if (upperBody?.group) skinPhysics.attachObject(upperBody.group, { pickable: true });
+    if (laceMat) skinPhysics.patchMaterial(laceMat, { tiltNormal: false });
   }
 
   skirtCloth = new TearablePleatedSkirt(scene, fiberDust);
@@ -788,6 +918,22 @@ async function initCharacterScene() {
   const stockSys = createStockingSystem({ scene, camera, fiberDust, laceMat });
   cloths = stockSys.cloths;
   applyColorPreset = stockSys.applyColorPreset;
+
+  // Đồng bộ biến dạng đàn hồi: áo cotton & váy bật tiltNormal để thấy rõ độ lõm/nảy ở ngực & hông;
+  // riêng tất lưới/tất mỏng Fresnel & ren giữ tiltNormal: false để không đổi màu khi ấn!
+  skinPhysics.attachObject(skirtCloth.mesh, { pickable: false, tiltNormal: true });
+  skinPhysics.attachObject(skirtCloth.tornEdgeMesh, { pickable: false, tiltNormal: false });
+  if (shirtCloth) {
+    for (const m of shirtCloth.getPickMeshes()) skinPhysics.attachObject(m, { pickable: false, tiltNormal: true });
+    skinPhysics.attachObject(shirtCloth.tornEdgeMesh, { pickable: false, tiltNormal: false });
+  }
+  for (const c of cloths) {
+    skinPhysics.attachObject(c.strandMesh, { pickable: false, tiltNormal: false });
+    skinPhysics.attachObject(c.knotMesh, { pickable: false, tiltNormal: false });
+    skinPhysics.attachObject(c.sheerMesh, { pickable: false, tiltNormal: false });
+    skinPhysics.attachObject(c.sheerFrayMesh, { pickable: false, tiltNormal: false });
+    skinPhysics.attachObject(c.shadowMesh, { pickable: false, tiltNormal: false });
+  }
 
   miniGame = createMiniGameController({
     scene,

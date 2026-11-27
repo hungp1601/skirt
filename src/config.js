@@ -41,6 +41,7 @@ export const appState = {
   strength: 2.45,
   pullPower: 0.90,
   orbitMode: false,
+  touchMode: false,
   gameMode: 'sandbox',     // 'sandbox' | 'minigame'
   levelIndex: 0
 };

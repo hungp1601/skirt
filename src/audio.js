@@ -91,6 +91,26 @@ export class SoundEngine {
     }
   }
 
+  playSkinTap(intensity = 0.7) {
+    if (!this.enabled || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    const baseFreq = 92 + intensity * 34;
+    osc.frequency.setValueAtTime(baseFreq, now);
+    osc.frequency.exponentialRampToValueAtTime(48, now + 0.085);
+
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.085 * clamp(intensity, 0.3, 1.0), now + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.095);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.10);
+  }
+
   playMicroCreak(intensity) {
     if (!this.enabled || !this.ctx || !this.pinkBuffer) return;
     const now = this.ctx.currentTime;

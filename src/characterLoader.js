@@ -1023,6 +1023,8 @@ function buildSeamlessLowerLegsAndProfile(scene, model, torsoVerts, yCut, modelH
   });
 
   const lowerLegGroup = new THREE.Group();
+  const lowerLegMeshes = [];
+  const seamBlendMeshes = [];
   const avgRgb = glbSkinInfo.avgRgb;
 
   for (const sideKey of ['-1', '1']) {
@@ -1082,6 +1084,7 @@ function buildSeamlessLowerLegsAndProfile(scene, model, torsoVerts, yCut, modelH
     legMesh.castShadow = true;
     legMesh.receiveShadow = true;
     lowerLegGroup.add(legMesh);
+    lowerLegMeshes.push(legMesh);
 
     // 2. Dải cầu hòa trộn da 7.6cm (ySeam - 0.036 .. ySeam + 0.040) ôm mượt ngoài biên GLB thực +1.2mm -> xóa triệt để cả vết cắt mờ!
     const bSegY = 24, bSegR = 64;
@@ -1141,6 +1144,7 @@ function buildSeamlessLowerLegsAndProfile(scene, model, torsoVerts, yCut, modelH
     blendMesh.renderOrder = 0;
     blendMesh.receiveShadow = true;
     lowerLegGroup.add(blendMesh);
+    seamBlendMeshes.push(blendMesh);
 
     const footPos = evalLegCenter(sideKey, 0.068);
     const shoe = buildMaryJaneShoe(shoeMat, buckleMat, legYaw[sideKey]);
@@ -1289,6 +1293,8 @@ function buildSeamlessLowerLegsAndProfile(scene, model, torsoVerts, yCut, modelH
   return {
     legSkinMat,
     laceMat,
+    lowerLegMeshes,
+    seamBlendMeshes,
     legProfile: {
       yTop: legYTop,
       yBot: legYBot,
@@ -1633,6 +1639,8 @@ export async function loadGLBCharacter(scene, url, { skinTex, skinSSSUniform, on
         let profile;
         let legSkinMat = null;
         let laceMat = null;
+        let lowerLegMeshes = [];
+        let seamBlendMeshes = [];
 
         if (isUpperBodyCut) {
           // 1. Dò trọn 2 ống cánh tay (từ vai xuống ngón tay, tự nối cầu mượt qua đoạn chạm hông)
@@ -1748,6 +1756,8 @@ export async function loadGLBCharacter(scene, url, { skinTex, skinSSSUniform, on
           );
           legSkinMat = built.legSkinMat;
           laceMat = built.laceMat;
+          lowerLegMeshes = built.lowerLegMeshes;
+          seamBlendMeshes = built.seamBlendMeshes;
 
           // 4. Quét bao ngoài hông/eo (Váy xếp ly) & thân trên (Áo nữ sinh) hoàn toàn sạch tay!
           const skirtBounds = scanCleanBodyEnvelope(
@@ -1775,10 +1785,21 @@ export async function loadGLBCharacter(scene, url, { skinTex, skinSSSUniform, on
           shirtProfile.uLatX = uLatX;
           shirtProfile.uLatZ = uLatZ;
 
+          // Quét bao ngoài 360° chính xác cho cổ, mặt & đầu (dùng làm proxy chạm da không bị lệch tâm hay hụt đầu)
+          const headProfile = scanCleanBodyEnvelope(
+            allVerts,
+            totalHeight,
+            yOffset + modelHeight * 0.69,
+            18,
+            36,
+            0.28
+          );
+
           profile = {
             ...built.legProfile,
             skirtBounds,
             shirtProfile,
+            headProfile,
             armTubes,
             sleeveProfiles,
             maxRadiusBeforeArms
@@ -1787,5 +1808,5 @@ export async function loadGLBCharacter(scene, url, { skinTex, skinSSSUniform, on
           profile = scanFullBodyProfile(allVerts, totalHeight);
         }
 
-        return { model, profile, legSkinMat, laceMat, totalHeight };
+        return { model, profile, legSkinMat, laceMat, lowerLegMeshes, seamBlendMeshes, totalHeight };
 }

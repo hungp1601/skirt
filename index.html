@@ -153,6 +153,14 @@
   <!-- Top-Right: Control Panel -->
   <div class="fixed top-4 right-4 z-20 flex flex-col items-end gap-2">
     <div class="flex items-center gap-2">
+      <button id="btn-touch-toggle" title="Chế độ Chạm da đàn hồi (Phím 3)"
+        class="glass-panel studio-btn rounded-xl px-3 py-2 text-xs font-medium text-slate-200 flex items-center gap-1.5 hover:bg-white/15 border border-transparent">
+        <svg class="w-4 h-4 text-rose-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11"/>
+        </svg>
+        <span id="touch-toggle-text" class="hidden sm:inline">Chạm da</span>
+      </button>
+
       <button id="btn-orbit-toggle" title="Chuyển chế độ Kéo / Xoay 360°"
         class="glass-panel studio-btn rounded-xl px-3 py-2 text-xs font-medium text-slate-200 flex items-center gap-1.5 hover:bg-white/15">
         <svg class="w-4 h-4 text-sky-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
