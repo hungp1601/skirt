@@ -52,8 +52,8 @@ const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
 fs.writeFileSync(path.join(dist, 'index.html'), html);
 fs.copyFileSync(path.join(root, 'styles.css'), path.join(dist, 'styles.css'));
 
-const assetsLink = path.join(dist, 'assets');
-fs.symlinkSync(path.join(root, 'assets'), assetsLink);
+const assetsDest = path.join(dist, 'assets');
+fs.cpSync(path.join(root, 'assets'), assetsDest, { recursive: true });
 
 const out = fs.readFileSync(path.join(dist, 'game.js'), 'utf8');
 const leaked = ['tearPatch', 'consumePullTear', 'DiamondFishnetStocking', 'character.glb'].filter((name) => out.includes(name));
